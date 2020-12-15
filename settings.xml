@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.1.0 http://maven.apache.org/xsd/settings-1.1.0.xsd" xmlns="http://maven.apache.org/SETTINGS/1.1.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+ <servers>
+    <server>
+      <username>${env.GEHC_ARTIFACTORY_USR}</username>
+      <password>${env.GEHC_ARTIFACTORY_PSW}</password>
+      <id>maven-bfe-all</id>
+    </server>
+  </servers>
+ <localRepository>./repository</localRepository>
+ 
+  <pluginGroups>
+    <pluginGroup>org.sonarsource.scanner.maven</pluginGroup>
+ </pluginGroups>
+  
+ <profiles>
+    <profile>
+      <id>artifactory</id>
+      <repositories>
+     
+       <repository>
+          <snapshots>
+            <enabled>false</enabled>
+          </snapshots>
+          <id>maven-bfe-release</id>
+          <name>maven-bfe-release</name>
+          <url>https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/maven-bfe-all</url>
+        </repository>
+      
+        <repository>
+          <snapshots>
+            <enabled>false</enabled>
+          </snapshots>
+          <id>central</id>
+          <name>maven-bfe-all</name>
+          <url>https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/maven-ext</url>
+        </repository>
+        <repository>
+          <snapshots />
+          <id>snapshots</id>
+          <name>maven-bfe-all</name>
+          <url>https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/maven-ext</url>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <snapshots>
+            <enabled>false</enabled>
+          </snapshots>
+          <id>central</id>
+          <name>maven-bfe-all</name>
+          <url>https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/maven-ext</url>
+        </pluginRepository>
+        <pluginRepository>
+          <snapshots />
+          <id>snapshots</id>
+          <name>maven-bfe-all</name>
+          <url>https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/maven-ext</url>
+        </pluginRepository>
+        </pluginRepositories>
+    </profile>
+    <profile>
+            <id>sonar</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <!-- Optional URL to server. Default value is http://localhost:9000 -->
+                <sonar.host.url>
+                  http://sonarqube:9000/sonarqube/
+                </sonar.host.url>
+                <sonar.login>${env.SONAR_ACCESS_USR}</sonar.login>
+                <sonar.password>${env.SONAR_ACCESS_PSW}</sonar.password>
+            </properties>
+        </profile>
+  </profiles>
+  <activeProfiles>
+    <activeProfile>artifactory</activeProfile>
+  </activeProfiles>
+</settings>
