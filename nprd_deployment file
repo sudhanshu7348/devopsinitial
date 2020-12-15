@@ -1,0 +1,105 @@
+#!groovy
+pipeline{
+  agent { label 'swarm_manager' }
+  
+  options { 
+    office365ConnectorWebhooks([[name: 'nprd_bfe_jenkins', notifyFailure: true, notifySuccess: true, startNotification: true, url: 'https://outlook.office.com/webhook/718fa5e8-4c6b-4872-94c4-99445c122eef@15ccb6d1-d335-4996-b6f9-7b6925f08121/JenkinsCI/a1d7753c2a2e41b89eaf15c117858c78/f224158a-2841-44c5-a8d2-de7c9f0c9bd2']])
+    timestamps ()
+    disableConcurrentBuilds()
+    ansiColor('xterm')
+    authorizationMatrix inheritanceStrategy: inheritingGlobal(), 
+      permissions: [
+        'hudson.model.Item.Build:BFE*bfe_dev_team', 
+        'hudson.model.Item.Cancel:BFE*bfe_dev_team',
+        'hudson.model.Item.Read:BFE*bfe_dev_team', 
+        'hudson.model.Item.Read:BFE*bfe_support_team'
+        ] 
+  
+  }
+  
+  environment {
+    GITHUB_ACCESS = credentials ('github_npa_pat')
+    GEHC_ARTIFACTORY = credentials ('artifactory_npa_pat')
+    DOCKER_REGISTRY = "hc-us-east-aws-artifactory.cloud.health.ge.com"
+    BFE_DOCKER_REPO ="docker-bfe-preprod"
+  }
+  
+  parameters{
+    // APPNAME
+    choice (name: 'APP_NAME', choices: 'smax\nuscan', description: 'Aapplication Dist to be deployed /updated /refreshed ')
+    // ENVIRONMENT
+    choice (name: 'ENVIRONMENT', choices: 'dev\ntest\nstage\nuat', description: 'Aapplication Env to be deployed /updated /refreshed ')
+  }
+  
+  stages{
+    stage('Build Info Set'){
+		steps{
+			script{
+				def triggeredByUser =  "${currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause).getUserName()}"
+				currentBuild.displayName = "${BUILD_DISPLAY_NAME} - ${APP_NAME}-${ENVIRONMENT} - ${triggeredByUser}"
+				} 
+			}
+		} //stage - Build Info Set
+    
+    stage('stack_checkout'){
+      steps{
+        dir("${ENVIRONMENT}-${APP_NAME}"){
+          git branch: "patchfix_multiple_environments", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/gebfe-docker-stack.git"
+        }
+      } //steps 
+    } // stage 
+    
+    stage('stack_deploy'){
+      steps {
+        sh '''
+          #!/bin/bash
+          export
+          echo "${ENVIRONMENT}-${APP_NAME}"
+          cd ${ENVIRONMENT}-${APP_NAME}/
+          pwd
+          ls 
+          docker --config ~/.${BFE_DOCKER_REPO} login --username ${GEHC_ARTIFACTORY_USR} --password ${GEHC_ARTIFACTORY_PSW} ${DOCKER_REGISTRY}
+          export $(cat gebfe-${APP_NAME}-${ENVIRONMENT}-version.env)
+          export
+	  case "${ENVIRONMENT}" in
+	  	dev)
+		sed -i 's!env-!dev-!g' gebfe-${APP_NAME}-docker-stack.yml
+		grep dev- gebfe-${APP_NAME}-docker-stack.yml
+		;;
+		test)
+		sed -i 's!env-!tst-!g' gebfe-${APP_NAME}-docker-stack.yml
+		grep tst- gebfe-${APP_NAME}-docker-stack.yml
+		;;
+		stage)
+		sed -i 's!env-!stg-!g' gebfe-${APP_NAME}-docker-stack.yml
+		grep stg- gebfe-${APP_NAME}-docker-stack.yml
+		;;
+		uat)
+		sed -i 's!env-!uat-!g' gebfe-${APP_NAME}-docker-stack.yml
+		grep uat- gebfe-${APP_NAME}-docker-stack.yml
+		;;	  
+	  esac
+          docker --config ~/.${BFE_DOCKER_REPO} -D stack deploy -c gebfe-${APP_NAME}-docker-stack.yml ${ENVIRONMENT}-${APP_NAME}
+        '''
+      } //steps 
+      
+      
+    } // stages
+    stage('prod_sanity_check'){
+      steps {
+        sh '''
+          #!/bin/bash
+	  sleep 2m
+	  docker stack ps  ${ENVIRONMENT}-${APP_NAME} | grep Running 
+	  
+          # 
+        '''
+        cleanWs()
+
+      } //steps 
+      
+      
+    } // stage
+  } //stages
+  
+} // pipeline
