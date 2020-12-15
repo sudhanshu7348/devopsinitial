@@ -1,0 +1,434 @@
+#!groovy
+def PROJECT_VERSION ='0.0.0'
+def ARTIFACT_NAME =''
+def NODE_HOST = ''
+def SERVICE_NAME=''
+pipeline{
+  agent {
+    label 'swarm_worker'
+      }
+  
+  options { 
+    office365ConnectorWebhooks([[name: 'nprd_bfe_jenkins', notifyFailure: true, notifySuccess: true, startNotification: true, url: 'https://outlook.office.com/webhook/718fa5e8-4c6b-4872-94c4-99445c122eef@15ccb6d1-d335-4996-b6f9-7b6925f08121/JenkinsCI/a1d7753c2a2e41b89eaf15c117858c78/f224158a-2841-44c5-a8d2-de7c9f0c9bd2']])
+    timestamps ()
+    disableConcurrentBuilds()
+    ansiColor('xterm')
+    authorizationMatrix inheritanceStrategy: inheritingGlobal(), 
+      permissions: [
+        'hudson.model.Item.Build:BFE*bfe_dev_team', 
+        'hudson.model.Item.Cancel:BFE*bfe_dev_team', 
+	'hudson.model.Item.Read:BFE*bfe_dev_team', 
+        'hudson.model.Item.Read:BFE*bfe_support_team'
+        ] 
+  
+  
+  }
+  
+  environment {
+    CACHING_REPO_URL = 'https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/npm-bfe-all'
+    GITHUB_ACCESS = credentials ('github_npa_pat')
+    GEHC_ARTIFACTORY = credentials ('artifactory_npa_pat')
+    DOCKER_REGISTRY = "hc-us-east-aws-artifactory.cloud.health.ge.com"
+    DOCKER_REPO ="docker-bfe-preprod"
+    HOME = "." 
+    
+  }
+  
+  parameters{
+        string(name: 'APP_BRANCH', defaultValue: 'dev', description: 'which child branch of Dev should I build')
+        choice(name: 'DEV_PROMOTE', choices:'verify\ntrue\nsprint\ndev-rebuild', description: 'Merge with develop and deploy to dev environment')
+        string(name: 'REPO_NAME', defaultValue: 'gebfe-ui', description: 'enter repo name like "gebfe-ui')
+  }
+  
+  stages{
+	  stage("cleanup_before_job") {
+            steps {
+                
+		        sh 'docker system prune -af'
+		        
+            }
+        }
+    
+    stage('Build Info Set'){
+      steps{
+        script{
+          def triggeredByUser =  "${currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause).getUserName()}"
+		currentBuild.displayName = "${BUILD_DISPLAY_NAME} - ${APP_BRANCH} - ${triggeredByUser}"
+        } //script
+      } // steps
+    } //stage - Build Info Set
+    stage('Pull_Request_Status') {
+      when {  expression { params.DEV_PROMOTE ==~ /(true|sprint)/ }  }
+      steps{
+        sh """
+          export PATH=/mnt/efs/devops-stack:\$PATH
+          pull_request=\$(curl -H 'Content-Type: application/json' -u ${GITHUB_ACCESS_USR}:${GITHUB_ACCESS_PSW} https://github.build.ge.com/api/v3/repos/BFE/${REPO_NAME}/pulls?state=open | jq '.[] | select(.head.ref == "${APP_BRANCH}" ) | .url' | cut -d'"' -f2)
+          echo \${pull_request}
+	  
+	  pull_request_status=\$(curl -H 'Content-Type: application/json' -u ${GITHUB_ACCESS_USR}:${GITHUB_ACCESS_PSW} \${pull_request}/reviews | jq '.[] | select( .state == "APPROVED") | .state ')
+          echo \${pull_request_status}
+          case \${pull_request_status} in 
+            *APPROVED* )
+            echo " continue with promotion activity"
+            ;;
+            * )
+            echo "Pull Request is not yet Approved  Aborting the Promote job"
+              exit 1
+            ;;
+          esac
+        """
+      } //steps
+    } //stage
+	   
+    stage('Build and Test'){
+      agent {
+        docker {
+          image 'hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-all/node:latest'
+          reuseNode true
+          args  '-v /tmp:/tmp '
+		// --network docker-gateway
+          registryUrl 'https://hc-us-east-aws-artifactory.cloud.health.ge.com'
+          registryCredentialsId 'artifactory_npa_pat'
+          /* label 'swarm_worker' */
+        }
+      }
+      stages {
+          stage('code_checkout_verify')
+                { 
+		when {  expression { params.DEV_PROMOTE ==~ /(verify)/ }  }
+                    steps
+                    {
+                        dir("${APP_BRANCH}"){
+                            //git branch: "dev", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/${REPO_NAME}.git"
+			    git branch: "${APP_BRANCH}", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/${REPO_NAME}.git"
+                        }
+                    } //steps
+                } // stage
+	      stage('code_checkout_sprint')
+                { 
+		when {  expression { params.DEV_PROMOTE ==~ /(sprint)/ }  }
+                    steps
+                    {
+                        dir("${APP_BRANCH}"){
+                            
+			    git branch: "sprint", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/${REPO_NAME}.git"
+                        }
+                    } //steps
+                } // stage
+        stage('code_checkout'){
+		when {  expression { params.DEV_PROMOTE ==~ /(true)/ }  }
+          steps{
+              
+            dir("${APP_BRANCH}"){
+              git branch: "dev", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/${REPO_NAME}.git"
+              
+              }
+            } //steps
+        } // stage
+
+        stage('merge check and update version'){
+            when 
+                    { 
+                        expression { params.DEV_PROMOTE ==~ /(true)/ }
+                    }
+          steps{
+            sh'''
+              #!/bin/bash
+              cd ${APP_BRANCH}
+              currentVersion=`node -pe "require('./package.json').version"`
+              echo " current version : $currentVersion "
+              major=`echo $currentVersion | cut -d "." -f1`
+              minor=`echo $currentVersion | cut -d "." -f2`
+              micro=`echo $currentVersion | cut -d "." -f3`
+              
+              echo -n "https://${GITHUB_ACCESS}@github.build.ge.com/BFE/${REPO_NAME}.git" > .git-credentials 
+              git config user.email "Service.BFE_GIT_SERVICE_ACCNT@ge.com" # Functional Account email to be updated
+              git config --global user.name "BFE_GIT_SERVICE_ACCNT, Service" # Functional Account user to be updated
+              git config --global credential.helper "store --file .git-credentials"
+              
+              case "${APP_BRANCH}" in 
+                *major_*)
+                  echo " Branch is Major  "
+		  git merge --no-commit  --no-ff -v origin/${APP_BRANCH}
+                  npm version major --no-git-tag-version --force
+		  git add package.json
+                ;;
+                *minor_*)
+                  echo " Branch is Minor "
+		  git merge --no-commit  --no-ff -v origin/${APP_BRANCH}
+                  npm version minor --no-git-tag-version --force
+		  git add package.json
+                ;;
+		*defect_*)
+                  echo " Branch is Micro "
+		  git merge --no-commit  --no-ff -v origin/${APP_BRANCH}
+                  npm version patch --no-git-tag-version --force
+		  git add package.json
+                ;;
+		
+                
+                dev)
+                  echo " Branch is dev branch no need to merge and update the version  "
+                  
+                ;;
+              esac
+
+              git log --name-only -3
+              '''
+            dir ("${APP_BRANCH}") {
+                script {
+                  PROJECT_VERSION = sh(script:'''node -pe "require('./package.json').version"''', returnStdout:true).trim() 
+                  ARTIFACT_NAME = sh(script:'''node -pe "require('./package.json').name"''', returnStdout:true).trim()
+                  /* WORKDIR = pwd() */
+                  
+                }
+                echo (" Artifact Name = ${ARTIFACT_NAME} Project Version = ${PROJECT_VERSION}  NODE Name = ${NODE_HOST} "   )
+              }
+            } //steps
+        }// stage
+    
+        stage('topic build test and coverage'){
+          steps{
+            // withSonarQubeEnv('SONAR') {
+              sh '''
+                  #!/bin/bash
+                  cd ${APP_BRANCH}
+                  
+                  npm config set prefix ${WORKSPACE}/${APP_BRANCH}/node_modules
+                  export PATH=$PATH:${WORKSPACE}/${APP_BRANCH}/node_modules/.bin
+                  
+                  #npm config set registry ${CACHING_REPO_URL}
+                  #npm config set strict-ssl true
+                  npm install --verbose
+              '''
+		  
+		  dir ("${APP_BRANCH}") {
+                script {
+                  PROJECT_VERSION = sh(script:'''node -pe "require('./package.json').version"''', returnStdout:true).trim() 
+                  ARTIFACT_NAME = sh(script:'''node -pe "require('./package.json').name"''', returnStdout:true).trim()
+                  /* WORKDIR = pwd() */
+                  
+                }
+                echo (" Artifact Name = ${ARTIFACT_NAME} Project Version = ${PROJECT_VERSION}  NODE Name = ${NODE_HOST} "   )
+              }
+              /*sh'''
+              #!/bin/bash
+              cd ${APP_BRANCH}
+              mvn  -s settings.xml -U -Dmaven.repo.local=${WORKSPACE}/${APP_BRANCH}/mvn_repository org.sonarsource.scanner.maven:sonar-maven-plugin:3.2:sonar -Dsonar.branch=${APP_BRANCH}'
+              '''
+              */
+           // } //sonar env
+          } // steps
+        } //stage 
+      } // stages 
+    } // stage ( build and Test ) 
+    stage('docker_publish'){
+      
+      steps {
+        sh  """
+            #!/bin/bash
+              cd ${APP_BRANCH}
+              docker --config ~/.${DOCKER_REPO} login --username ${GEHC_ARTIFACTORY_USR} --password ${GEHC_ARTIFACTORY_PSW} ${DOCKER_REGISTRY}
+              
+              case "${DEV_PROMOTE}" in 
+              
+              true)
+	        
+                docker build . -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:${PROJECT_VERSION}-${APP_BRANCH}
+                docker --config ~/.${DOCKER_REPO} push ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:${PROJECT_VERSION}-${APP_BRANCH}
+              ;;
+	    dev-rebuild)
+                docker build . -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:${PROJECT_VERSION}-dev
+                docker --config ~/.${DOCKER_REPO} push ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:${PROJECT_VERSION}-dev
+              ;;
+	      sprint)
+	       git merge --no-commit  --no-ff -v origin/${APP_BRANCH}
+               docker build . -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:sprint-${APP_BRANCH}
+               docker --config ~/.${DOCKER_REPO} push ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:sprint-${APP_BRANCH}
+              ;;
+              
+              verify)
+              docker build . -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:${APP_BRANCH}
+              docker --config ~/.${DOCKER_REPO} push ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:${APP_BRANCH}
+              ;;
+              
+              esac
+              
+              
+            """
+      } //steps       
+    } // stage
+    stage('DEV_PROMOTE'){
+          when { 
+		  expression { params.DEV_PROMOTE ==~ /(true|verify|sprint)/ }
+		  // expression { params.APP_BRANCH ==~/(feature|enhancement)/ }
+	       }
+          steps {
+            sh """
+            cd ${APP_BRANCH}
+	    case "${DEV_PROMOTE}" in 
+                            true)
+              echo -n "https://${GITHUB_ACCESS}@github.build.ge.com/BFE/${JOB_BASE_NAME}.git" > .git-credentials 
+              git config user.email "Service.BFE_GIT_SERVICE_ACCNT@ge.com" # Functional Account email to be updated
+              git config --global user.name "BFE_GIT_SERVICE_ACCNT, Service" # Functional Account user to be updated
+              git config --global credential.helper "store --file .git-credentials"
+              git status
+              git commit -m "Release Version : ${PROJECT_VERSION} merged ${APP_BRANCH}"
+              git log -2
+              git tag -a "${PROJECT_VERSION}-${APP_BRANCH}" -m "Release Version : ${PROJECT_VERSION} merged ${APP_BRANCH}"
+              git remote get-url origin
+              git push --set-upstream origin dev --tags
+	      git branch -d ${APP_BRANCH}
+	               ;;
+		       sprint)
+			         echo -n "https://${GITHUB_ACCESS}@github.build.ge.com/BFE/${REPO_NAME}.git" > .git-credentials 
+                                git config user.email "Service.BFE_GIT_SERVICE_ACCNT@ge.com" # Functional Account email to be updated
+                                git config --global user.name "BFE_GIT_SERVICE_ACCNT, Service" # Functional Account user to be updated
+                                git config --global credential.helper "store --file .git-credentials"
+				#git commit -m "Release Version : ${PROJECT_VERSION} merged ${APP_BRANCH}" 
+				#git merge --no-commit  --no-ff -v origin/${APP_BRANCH}
+                                #git log -2
+                               #git tag -a "${PROJECT_VERSION}-${APP_BRANCH}" -m "Release Version : ${PROJECT_VERSION} merged ${APP_BRANCH}"
+                               #git remote get-url origin
+                               #git push --set-upstream origin sprint --tags
+			       git checkout sprint
+	                       git merge --no-ff origin/${APP_BRANCH}
+	                       git push origin sprint
+                                ;;
+                        esac
+            """
+            
+            dir("gebfe-docker-stack"){
+              git branch: "master", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/gebfe-docker-stack.git"
+              }
+            sh """
+            cd gebfe-docker-stack
+	      echo -n "https://${GITHUB_ACCESS}@github.build.ge.com/BFE/gebfe-docker-stack.git" > .git-credentials 
+              git config user.email "Service.BFE_GIT_SERVICE_ACCNT@ge.com" # Functional Account email to be updated
+              git config --global user.name "BFE_GIT_SERVICE_ACCNT, Service" # Functional Account user to be updated
+              git config --global credential.helper "store --file .git-credentials"
+              # update smax dev env file
+             export
+             echo "${ARTIFACT_NAME} ${PROJECT_VERSION} - ${APP_BRANCH}"
+             if  [ "${DEV_PROMOTE}" = "verify" ] ; then
+              if  grep "/${ARTIFACT_NAME}:" gebfe-smax-docker-stack.yml ; then
+                echo "artifact found in gebfe-smax-docker-stack.yml as such gebfe-smax-dev-version.env will be updated with ${APP_BRANCH} "
+              export SERVICE_NAME=`sed 's/[{}]//g' gebfe-smax-docker-stack.yml | grep "/${ARTIFACT_NAME}:" | cut -d':' -f3 | cut -c 2-`
+              echo " service name is  : \${SERVICE_NAME}"
+	     
+              sed -i "s/\${SERVICE_NAME}=.*/\${SERVICE_NAME}=${APP_BRANCH}/g" gebfe-smax-dev-version.env
+	      git add gebfe-smax-dev-version.env
+                else
+                  echo "this artifact is not utilized in gebfe-smax-docker-stack.yml"
+                fi
+                # update uscan dev env file
+	    
+              if  grep "/${ARTIFACT_NAME}:" gebfe-uscan-docker-stack.yml ;then
+                echo " artifact found in gebfe-uscan-docker-stack.yml as such gebfe-uscan-dev-version.env will be updated with ${APP_BRANCH} "
+                export SERVICE_NAME=`sed 's/[{}]//g' gebfe-uscan-docker-stack.yml | grep "/${ARTIFACT_NAME}:" | cut -d":" -f3 | cut -c 2-`
+                echo " service name is  : \${SERVICE_NAME}"
+             sed -i "s/\${SERVICE_NAME}=.*/\${SERVICE_NAME}=${APP_BRANCH}/g" gebfe-uscan-dev-version.env
+	     git add gebfe-uscan-dev-version.env
+                else
+                  echo "this artifact is  not utilized in gebfe-uscan-docker-stack.yml"
+                fi
+                fi
+		
+		if [ "${DEV_PROMOTE}" = "true" ] ; then
+		
+		if  grep "/${ARTIFACT_NAME}:" gebfe-smax-docker-stack.yml ; then
+                echo "artifact found in gebfe-smax-docker-stack.yml as such gebfe-smax-dev-version.env will be updated with ${PROJECT_VERSION}-${APP_BRANCH} "
+              export SERVICE_NAME=`sed 's/[{}]//g' gebfe-smax-docker-stack.yml | grep "/${ARTIFACT_NAME}:" | cut -d':' -f3 | cut -c 2-`
+              echo " service name is  : \${SERVICE_NAME}"
+	     
+              sed -i "s/\${SERVICE_NAME}=.*/\${SERVICE_NAME}=${PROJECT_VERSION}-${APP_BRANCH}/g" gebfe-smax-stage-version.env
+	      git add gebfe-smax-stage-version.env
+                else
+                  echo "this artifact is not utilized in gebfe-smax-docker-stack.yml"
+                fi
+                # update uscan dev env file
+	    
+              if  grep "/${ARTIFACT_NAME}:" gebfe-uscan-docker-stack.yml ;then
+                echo " artifact found in gebfe-uscan-docker-stack.yml as such gebfe-uscan-dev-version.env will be updated with ${PROJECT_VERSION}-${APP_BRANCH} "
+                export SERVICE_NAME=`sed 's/[{}]//g' gebfe-uscan-docker-stack.yml | grep "/${ARTIFACT_NAME}:" | cut -d":" -f3 | cut -c 2-`
+                echo " service name is  : \${SERVICE_NAME}"
+             sed -i "s/\${SERVICE_NAME}=.*/\${SERVICE_NAME}=${PROJECT_VERSION}-${APP_BRANCH}/g" gebfe-uscan-stage-version.env
+	     git add gebfe-uscan-stage-version.env
+                else
+                  echo "this artifact is  not utilized in gebfe-uscan-docker-stack.yml"
+                fi
+                fi
+		if [ "${DEV_PROMOTE}" = "sprint" ] ; then
+		if  grep "/${ARTIFACT_NAME}:" gebfe-smax-docker-stack.yml ; then
+                echo "artifact found in gebfe-smax-docker-stack.yml as such gebfe-smax-dev-version.env will be updated with sprint-${APP_BRANCH} "
+              export SERVICE_NAME=`sed 's/[{}]//g' gebfe-smax-docker-stack.yml | grep "/${ARTIFACT_NAME}:" | cut -d':' -f3 | cut -c 2-`
+              echo " service name is  : \${SERVICE_NAME}"
+	     
+              sed -i "s/\${SERVICE_NAME}=.*/\${SERVICE_NAME}=sprint-${APP_BRANCH}/g" gebfe-smax-dev-version.env
+	      git add gebfe-smax-dev-version.env
+                else
+                  echo "this artifact is not utilized in gebfe-smax-docker-stack.yml"
+                fi
+                # update uscan dev env file
+	    
+              if  grep "/${ARTIFACT_NAME}:" gebfe-uscan-docker-stack.yml ;then
+                echo " artifact found in gebfe-uscan-docker-stack.yml as such gebfe-uscan-dev-version.env will be updated with sprint-${APP_BRANCH} "
+                export SERVICE_NAME=`sed 's/[{}]//g' gebfe-uscan-docker-stack.yml | grep "/${ARTIFACT_NAME}:" | cut -d":" -f3 | cut -c 2-`
+                echo " service name is  : \${SERVICE_NAME}"
+             sed -i "s/\${SERVICE_NAME}=.*/\${SERVICE_NAME}=sprint-${APP_BRANCH}/g" gebfe-uscan-dev-version.env
+	     git add gebfe-uscan-dev-version.env
+                else
+                  echo "this artifact is  not utilized in gebfe-uscan-docker-stack.yml"
+                fi
+                fi
+		if [ "${DEV_PROMOTE}" = "dev-rebuild" ] ; then
+		if  grep "/${ARTIFACT_NAME}:" gebfe-smax-docker-stack.yml ; then
+                echo "artifact found in gebfe-smax-docker-stack.yml as such gebfe-smax-dev-version.env will be updated with sprint-${APP_BRANCH} "
+              export SERVICE_NAME=`sed 's/[{}]//g' gebfe-smax-docker-stack.yml | grep "/${ARTIFACT_NAME}:" | cut -d':' -f3 | cut -c 2-`
+              echo " service name is  : \${SERVICE_NAME}"
+	     
+              sed -i "s/\${SERVICE_NAME}=.*/\${SERVICE_NAME}=sprint-${APP_BRANCH}/g" gebfe-smax-dev-version.env
+	      git add gebfe-smax-dev-version.env
+                else
+                  echo "this artifact is not utilized in gebfe-smax-docker-stack.yml"
+                fi
+                # update uscan dev env file
+	    
+              if  grep "/${ARTIFACT_NAME}:" gebfe-uscan-docker-stack.yml ;then
+                echo " artifact found in gebfe-uscan-docker-stack.yml as such gebfe-uscan-dev-version.env will be updated with sprint-${APP_BRANCH} "
+                export SERVICE_NAME=`sed 's/[{}]//g' gebfe-uscan-docker-stack.yml | grep "/${ARTIFACT_NAME}:" | cut -d":" -f3 | cut -c 2-`
+                echo " service name is  : \${SERVICE_NAME}"
+             sed -i "s/\${SERVICE_NAME}=.*/\${SERVICE_NAME}=sprint-${APP_BRANCH}/g" gebfe-uscan-dev-version.env
+	     git add gebfe-uscan-dev-version.env
+                else
+                  echo "this artifact is  not utilized in gebfe-uscan-docker-stack.yml"
+                fi
+                fi
+	    if git diff-index --quiet HEAD --; then
+                            echo "no version change "
+                        else
+                            git commit -m " Release Version updated "
+                            git log -2
+                            git push -f origin master
+                        fi
+            """
+            
+          } //steps
+    
+        } //stage
+	  stage("cleanup") {
+            steps {
+                
+		        sh 'docker system prune -af'
+		        
+                //cleanWs()
+            }
+        }
+  }
+  post { 
+        always { 
+            echo 'I will always say Hello again!'
+            cleanWs()
+        }
+    }
+} // pipeline
