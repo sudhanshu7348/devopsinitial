@@ -1,0 +1,8 @@
+FQDN=dev-.clge.com
+FQDN_EXT=dev-.cloud..com
+APP_ENV_FILE=gebfe-smax
+UAA_VERSION=configure-tst-u
+BLOBSTORE_VERSION=minor_us55205
+LIQUIDATION_ACCOUNTING_VERSION=minor_us563078_f
+UI_VERSION=minor_us531001_tempmerge
+BILLING_INVOICE_VERSION=mino
