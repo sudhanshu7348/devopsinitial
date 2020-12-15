@@ -1,0 +1,104 @@
+#!groovy
+
+pipeline{
+  agent { label 'jump_box' }
+  
+  options { 
+    office365ConnectorWebhooks([[name: 'nprd_bfe_jenkins', notifyFailure: true, notifySuccess: true, startNotification: true, url: 'https://outlook.office.com/webhook/718fa5e8-4c6b-4872-94c4-99445c122eef@15ccb6d1-d335-4996-b6f9-7b6925f08121/JenkinsCI/a1d7753c2a2e41b89eaf15c117858c78/f224158a-2841-44c5-a8d2-de7c9f0c9bd2']])  
+    timestamps ()
+    disableConcurrentBuilds()
+    ansiColor('xterm')
+    authorizationMatrix inheritanceStrategy: inheritingGlobal(), 
+      permissions: [
+        'hudson.model.Item.Build:BFE*bfe_support_team', 
+        'hudson.model.Item.Cancel:BFE*bfe_support_team', 
+	'hudson.model.Item.Read:BFE*bfe_support_team',
+        'hudson.model.Item.Read:BFE*bfe_dev_team'  
+        ]  
+  }
+  
+  environment {
+    GITHUB_ACCESS = credentials ('github_npa_pat')
+    GEHC_ARTIFACTORY = credentials ('artifactory_npa_pat')
+    DOCKER_REGISTRY = "hc-us-east-aws-artifactory.cloud.health.ge.com"
+    BFE_DOCKER_REPO ="docker-bfe-prod"
+	  ENVIRONMENT = "prod"
+    BFE_PROD_SWARM_NLB = "bfe-prod-manager-ssh-nlb-ad099e339320966d.elb.us-east-1.amazonaws.com"
+	//  BFE_PROD_SWARM_NLB = "10.242.128.25"
+  }
+  
+  parameters{
+    // APPNAME
+    choice (name: 'APP_NAME', choices: ['smax','uscan'], description: 'Aapplication Dist to be deployed /updated /refreshed ')
+    }
+  
+  stages{
+    stage('Build Info Set'){
+		steps{
+			script{
+				def triggeredByUser =  "${currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause).getUserName()}"
+				currentBuild.displayName = "${BUILD_DISPLAY_NAME} - ${APP_NAME} - ${triggeredByUser}"
+				} 
+			}
+		} //stage - Build Info Set
+    
+    stage('stack_checkout'){
+      steps{
+        dir("${APP_NAME}"){
+          git branch: "master", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/gebfe-docker-stack.git"
+        }
+      } //steps 
+    } // stage 
+    
+    stage('Prod_deploy'){
+      steps {
+        sh '''
+          #!/bin/bash
+          export
+          echo "${APP_NAME}"
+	  chmod 400 ${WORKSPACE}/env_access/*.* 
+	  eval $(ssh-agent)
+	  ssh-add ${WORKSPACE}/env_access/*.pem
+	  #ssh ubuntu@${BFE_PROD_SWARM_NLB} "docker node ls "
+	  docker -H ssh://ubuntu@${BFE_PROD_SWARM_NLB} node ls
+	  docker -H ssh://ubuntu@${BFE_PROD_SWARM_NLB} stack ls
+          cd ${APP_NAME}/
+          pwd
+          ls 
+          docker --config ~/.${BFE_DOCKER_REPO} -H ssh://ubuntu@${BFE_PROD_SWARM_NLB} login --username ${GEHC_ARTIFACTORY_USR} --password ${GEHC_ARTIFACTORY_PSW} ${DOCKER_REGISTRY}
+          
+	  export $(cat gebfe-${APP_NAME}-${ENVIRONMENT}-version.env)
+	  sed -i 's!env-!!g' gebfe-${APP_NAME}-docker-stack.yml
+	  grep image -B1 gebfe-${APP_NAME}-docker-stack.yml
+          # docker --config ~/.${BFE_DOCKER_REPO} -H ssh://ubuntu@${BFE_PROD_SWARM_NLB} stack deploy -c gebfe-${APP_NAME}-docker-stack.yml ${ENVIRONMENT}-${APP_NAME}
+          sleep 60s   
+	  docker -H ssh://ubuntu@${BFE_PROD_SWARM_NLB} stack ps ${ENVIRONMENT}-${APP_NAME} | grep Running
+       '''
+
+      } //steps
+      
+      
+    } // stage
+    
+    /* stage('prod_sanity_check'){
+      steps {
+        sh '''
+          #!/bin/bash
+          # docker stack ps ${APP_NAME}_prod       
+          # 
+        '''
+        cleanWs()
+      } //steps 
+      
+      
+    } // stage 
+    */
+	  
+  } //stages
+  post {
+            always {
+                deleteDir()
+            }
+        } 
+} // pipeline
+
