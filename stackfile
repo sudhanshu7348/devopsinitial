@@ -1,0 +1,1247 @@
+version: '3.7'
+# App Name Billing Finance Engine
+services:
+
+# https://github.build.ge.com/BFE/gebfe-uaa-server.git
+  env-gebfe-uaa:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/uaa:${GEBFE_UAA_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-uaa
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_UAA_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 2G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 8080
+        # traefik.frontend.rule: "Host:${FQDN};PathPrefix:/uaa/"
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefix:/uaa/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefix:/uaa/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/uaa/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+
+# https://github.build.ge.com/BFE/gebfe-authorizer.git
+#  env-gebfe-authorizer:
+#    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-authorizer:${GEBFE_AUTHORIZER_VERSION}
+#    networks:
+#     - docker-gateway
+#   env_file:
+#      - ./${APP_ENV_FILE}
+#    environment:
+#      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-authorizer
+#    volumes:                                                                                                                          
+#      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+#    deploy:
+#      mode: replicated
+#      replicas: ${GEBFE_AUTHORIZER_REPLICA}
+#      placement:
+#        constraints: [node.role == worker]
+#      restart_policy:
+#        condition: any
+#        max_attempts: 3
+#     endpoint_mode: vip
+#      resources:
+#        limits:
+#          cpus: '0.20'
+#          memory: 4G
+#       reservations:
+#          cpus: '0.10'
+#          memory: 512M
+#      labels:
+#        traefik.frontend.passHostHeader: "true"
+#        traefik.port: 9093
+#        traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-authorizer/"
+#        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-authorizer/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+# https://github.build.ge.com/BFE/gebfe-blobstore.git
+  env-gebfe-blobstore:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-blobstore:${GEBFE_BLOBSTORE_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-blobstore
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_BLOBSTORE_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 2
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 8080
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-blobstore/"
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-blobstore/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-blobstore/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+# https://github.build.ge.com/BFE/gebfe-liquidation-accounting.git
+  env-gebfe-liquidation-accounting:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-liquidation-accounting:${GEBFE_LIQUIDATION_ACCOUNTING_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-liquidation-accounting
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_LIQUIDATION_ACCOUNTING_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 2G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9095
+        traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-liquidation-accounting/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-liquidation-accounting/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+# https://github.build.ge.com/BFE/gebfe-ui.git
+  env-gebfe-ui:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-ui:${GEBFE_UI_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-ui 
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_UI_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 8080
+        traefik.external.frontend.rule: "Host:${FQDN_EXT}"
+        traefik.internal.frontend.rule: "Host:${FQDN}"
+#       traefik.frontend.rule: "PathPrefixStrip:/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+# https://github.build.ge.com/BFE/gebfe-billing-invoice.git
+  env-gebfe-billing-invoice:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-billing-invoice:${GEBFE_BILLING_INVOICE_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-billing-invoice
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_BILLING_INVOICE_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9001
+        traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-billing-invoice/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-billing-invoice/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+# https://github.build.ge.com/GSIT/gebfe-finance-view.git
+  env-gebfe-finance-view:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-finance-view:${GEBFE_FINANCE_VIEW_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-finance-view 
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_FINANCE_VIEW_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 8080
+        traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-finance-view/"
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-finance-view/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-finance-view/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-finance-view/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+# https://github.build.ge.com/BFE/gebfe-contract-invoice-generation.git
+  env-gebfe-contract-invoice-generation:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-contract-invoice-generation:${GEBFE_CONTRACT_INVOICE_GENERATION_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-contract-invoice-generation
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_CONTRACT_INVOICE_GENERATION_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9008
+        traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-contract-invoice-generation/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-contract-invoice-generation/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+# https://github.build.ge.com/BFE/gebfe-credit-rebill.git
+  env-gebfe-credit-rebill:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-credit-rebill:${GEBFE_CREDIT_REBILL_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-credit-rebill 
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_CREDIT_REBILL_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9099
+        traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-credit-rebill/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-credit-rebill/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+# https://github.build.ge.com/BFE/gebfe-glprod-callback.git
+  env-gebfe-glprod-callback:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-glprod-callback:${GEBFE_GLPROD_CALLBACK_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-glprod-callback
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_GLPROD_CALLBACK_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 8078
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-glprod-callback/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-glprod-callback/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-glprod-callback/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+#https://github.build.ge.com/BFE/gebfe-import-smaxdata.git
+  env-gebfe-import-smaxdata:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-import-smaxdata:${GEBFE_IMPORT_SMAXDATA_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-import-smaxdata
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_IMPORT_SMAXDATA_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 2G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9094
+        traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-import-smaxdata/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-import-smaxdata/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+# https://github.build.ge.com/BFE/gebfe-reverse-interface-for-case-contract.git
+  env-gebfe-reverse-interface-for-case-contract:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-reverse-interface-for-case-contract:${GEBFE_REVERSE_INTERFACE_FOR_CASE_CONTRACT_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-reverse-interface-for-case-contract
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_REVERSE_INTERFACE_FOR_CASE_CONTRACT_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9008
+        #traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-reverse-interface-for-case-contract/"
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-reverse-interface-for-case-contract/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-reverse-interface-for-case-contract/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-reverse-interface-for-case-contract/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+
+#https://github.build.ge.com/BFE/gebfe-smax-account-address-asset.git
+  env-gebfe-smax-account-address-asset:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-smax-account-address-asset:${GEBFE_SMAX_ACCOUNT_ADDRESS_ASSET_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-smax-account-address-asset
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_SMAX_ACCOUNT_ADDRESS_ASSET_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 2G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9093
+        #traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-smax-account-address-asset/"
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-smax-account-address-asset/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-smax-account-address-asset/"
+
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-smax-account-address-asset/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+
+# https://github.build.ge.com/BFE/gebfe-accruals-for-case-invoice-generation.git
+  env-gebfe-case-accrual-invoice-generation:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-case-accrual-invoice-generation:${GEBFE_CASE_ACCRUAL_INVOICE_GENERATION_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-case-accrual-invoice-generation
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_CASE_ACCRUAL_INVOICE_GENERATION_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 8085
+        #traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-case-accrual-invoice-generation/"
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-case-accrual-invoice-generation/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-case-accrual-invoice-generation/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-case-accrual-invoice-generation/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+# https://github.build.ge.com/BFE/gebfe-smax-invoice-revrec-schedules.git
+  env-gebfe-invoice-revrec-bulk-api:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-invoice-revrec-bulk-api:${GEBFE_SMAX_INVOICE_REVREC_BULK_API_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-invoice-revrec-bulk-api  
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_SMAX_INVOICE_REVREC_BULK_API_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9093
+        #traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-smax-invoice-revrec-schedules/"
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-smax-invoice-revrec-schedules/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-smax-invoice-revrec-schedules/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-smax-invoice-revrec-schedules/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+# https://github.build.ge.com/BFE/gebfe-smax-entitlements-by-asset.git
+  env-gebfe-service-offering-bulk-api-assetip:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-service-offering-bulk-api-assetip:${GEBFE_SERVICE_OFFERING_BULK_API_ASSETIP_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-service-offering-bulk-api-assetip 
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_SERVICE_OFFERING_BULK_API_ASSETIP_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 2G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9094
+        #traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-smax-entitlements-by-asset/"
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-smax-entitlements-by-asset/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-smax-entitlements-by-asset/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-smax-entitlements-by-asset/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+#https://github.build.ge.com/BFE/gebfe-smax-contract.git
+  env-gebfe-smax-contract:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-smax-contract:${GEBFE_SMAX_CONTRACT_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-smax-contract  
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_SMAX_CONTRACT_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9094
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-smax-contract/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-smax-contract/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-smax-contract/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+# https://github.build.ge.com/BFE/gebfe-case-ar-export.git
+  env-gebfe-case-ar-export:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-case-ar-export:${GEBFE_CASE_AR_EXPORT_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-case-ar-export 
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_CASE_AR_EXPORT_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 8077
+        #traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-case-ar-export/"
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-case-ar-export/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-case-ar-export/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-case-ar-export/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+#https://github.build.ge.com/BFE/gebfe-case-invoice-generation.git
+  env-gebfe-case-invoice-generation:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-case-invoice-generation:${GEBFE_CASE_INVOICE_GENERATION_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-case-invoice-generation
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_CASE_INVOICE_GENERATION_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 5G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9006
+        #traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-case-invoice-generation/"
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-case-invoice-generation/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-case-invoice-generation/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-case-invoice-generation/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+#https://github.build.ge.com/BFE/gebfe-cfd-batch-scheduler.git
+  env-gebfe-cfd-batch-scheduler:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-cfd-batch-scheduler:${GEBFE_CFD_BATCH_SCHEDULAR_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-cfd-batch-scheduler  
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_CFD_BATCH_SCHEDULAR_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9001
+        traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-cfd-batch-scheduler/"
+        traefik.docker.network: "docker-gateway"
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-cfd-batch-scheduler/"]
+    #   interval: 1m30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 40s
+
+#https://github.build.ge.com/BFE/gebfe-channel-partners.git
+  env-gebfe-case-channel-partner:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-case-channel-partner:${GEBFE_CASE_CHANNEL_PARTNER_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-case-channel-partner  
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_CASE_CHANNEL_PARTNER_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9010
+        #traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-case-channel-partner/"
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-case-channel-partner/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-case-channel-partner/"
+
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-case-channel-partner/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+
+#https://github.build.ge.com/BFE/gebfe-contract-ar-export.git
+  env-gebfe-contract-ar-export:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-contract-ar-export:${GEBFE_CONTRACT_AR_EXPORT_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-contract-ar-export  
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_CONTRACT_AR_EXPORT_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9093
+        #traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-contract-ar-export/"
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-contract-ar-export/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-contract-ar-export/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-contract-ar-export/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+
+# https://github.build.ge.com/BFE/gebfe-uscan-manual-case-invoice-generation.git
+  env-gebfe-uscan-manual-case-invoice-generation:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-uscan-manual-case-invoice-generation:${GEBFE_USCAN_MANUAL_CASE_INVOICE_GENERATION_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-uscan-manual-case-invoice-generation 
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_USCAN_MANUAL_CASE_INVOICE_GENERATION_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 2G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9090
+        traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-uscan-manual-case-invoice-generation/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-uscan-manual-case-invoice-generation/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+#https://github.build.ge.com/BFE/gebfe-part-cost.git
+  env-gebfe-part-cost:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-part-cost:${GEBFE_PART_COST_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-part-cost  
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_PART_COST_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 2G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9093
+        #traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-part-cost/"
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-part-cost/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-part-cost/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-part-cost/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+# https://github.build.ge.com/BFE/gebfe-case-bulk-invoice-generation.git
+  env-gebfe-case-bulk-invoice-generation:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-case-bulk-invoice-generation:${GEBFE_CASE_BULK_INVOICE_GENERATION_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-case-bulk-invoice-generation 
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_CASE_BULK_INVOICE_GENERATION_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 4G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9006
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-case-bulk-invoice-generation/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-case-bulk-invoice-generation/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-case-bulk-invoice-generation/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+# https://github.build.ge.com/BFE/gebfe-liquidation-gl-export.git
+  env-gebfe-liquidation-gl-export:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-liquidation-gl-export:${GEBFE_LIQUIDATION_GL_EXPORT_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-liquidation-gl-export 
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_LIQUIDATION_GL_EXPORT_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 5G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 9093
+        #traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-liquidation-gl-export/"
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-liquidation-gl-export/"
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-liquidation-gl-export/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-contract-ar-export/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+  #git@github.build.ge.com:BFE/gebfe-automation.git
+  env-gebfe-automation:
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-automation:${GEBFE_AUTOMATION_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ./${APP_ENV_FILE}
+    environment:
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-automation  
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:
+      mode: replicated
+      replicas: ${GEBFE_AUTOMATION_REPLICA}
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: any
+        max_attempts: 3
+      endpoint_mode: vip
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 2G
+        reservations:
+          cpus: '0.10'
+          memory: 512M
+      labels:
+        traefik.frontend.passHostHeader: "true"
+        traefik.port: 8200
+        traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-automation/"
+        traefik.docker.network: "docker-gateway"
+      # healthcheck:
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-contract-ar-export/"]
+      #   interval: 1m30s
+      #   timeout: 10s
+      #   retries: 3
+      #   start_period: 40s
+
+#github.build.ge.com/BFE/gebfe-data-load.git
+  env-gebfe-data-load:	
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-data-load:${GEBFE_DATA_LOAD_VERSION}	
+    networks:	
+      - docker-gateway	
+    env_file:	
+      - ./${APP_ENV_FILE}	
+    environment:	
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-data-load	
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy:	
+      mode: replicated	
+      replicas: ${GEBFE_DATA_LOAD_REPLICA}
+      placement:	
+        constraints: [node.role == worker]	
+      restart_policy:	
+        condition: any	
+        max_attempts: 3	
+      endpoint_mode: vip	
+      resources:	
+        limits:	
+          cpus: '0.30'	
+          memory: 6G	
+        reservations:	
+          cpus: '0.10'	
+          memory: 1G	
+      labels:	
+        traefik.frontend.passHostHeader: "true"	
+        traefik.port: 8080	
+        #traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-data-load/"	
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-data-load/"	
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-data-load/"	
+        traefik.docker.network: "docker-gateway"	
+      # healthcheck:	
+      #   test: ["CMD", "curl", "-f","${FQDN}/gebfe-liquidation-accounting/"]	
+      #   interval: 1m30s	
+      #   timeout: 10s	
+      #   retries: 3	
+      #   start_period: 40s
+
+#github.build.ge.com/BFE/gebfe-reports.git
+  env-gebfe-reports:  
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-reports:${GEBFE_REPORTS_VERSION} 
+    networks: 
+      - docker-gateway  
+    env_file: 
+      - ./${APP_ENV_FILE} 
+    environment:  
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-reports
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy: 
+      mode: replicated  
+      replicas: ${GEBFE_REPORTS_REPLICA}
+      placement:  
+        constraints: [node.role == worker]  
+      restart_policy: 
+        condition: any  
+        max_attempts: 3 
+      endpoint_mode: vip  
+      resources:  
+        limits: 
+          cpus: '0.30'  
+          memory: 4G  
+        reservations: 
+          cpus: '0.10'  
+          memory: 512M  
+      labels: 
+        traefik.frontend.passHostHeader: "true" 
+        traefik.port: 9094  
+        traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-reports/"  
+        #traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-reports/"  
+        #traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-reports/"  
+        traefik.docker.network: "docker-gateway"
+#github.build.ge.com/BFE/gebfe-cfd.git
+  env-gebfe-cfd:  
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gebfe-cfd:${GEBFE_CFD_VERSION} 
+    networks: 
+      - docker-gateway  
+    env_file: 
+      - ./${APP_ENV_FILE} 
+    environment:  
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gebfe-cfd
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy: 
+      mode: replicated  
+      replicas: ${GEBFE_CFD_REPLICA}
+      placement:  
+        constraints: [node.role == worker]  
+      restart_policy: 
+        condition: any  
+        max_attempts: 3 
+      endpoint_mode: vip  
+      resources:  
+        limits: 
+          cpus: '0.30'  
+          memory: 4G  
+        reservations: 
+          cpus: '0.10'  
+          memory: 512M  
+      labels: 
+        traefik.frontend.passHostHeader: "true" 
+        traefik.port: 9002 
+        traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-cfd/"  
+        #traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-cfd/"  
+        #traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gebfe-cfd/"  
+        traefik.docker.network: "docker-gateway"
+
+#github.build.ge.com/BFE/gehc-twilio.git
+  env-gehc-fx-twilio:  
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-preprod/gehc-fx-twilio:${GEBFE_TWILIO_VERSION} 
+    networks: 
+      - docker-gateway  
+    env_file: 
+      - ./${APP_ENV_FILE} 
+    environment:  
+      - NEW_RELIC_APP_NAME=${ENVIRONMENT}-gehc-fx-twilio
+    volumes:                                                                                                                          
+      - /mnt/efs/ssl/certs/java/cacerts:/etc/ssl/certs/java/cacerts
+    deploy: 
+      mode: replicated  
+      replicas: ${GEBFE_TWILIO_REPLICA}
+      placement:  
+        constraints: [node.role == worker]  
+      restart_policy: 
+        condition: any  
+        max_attempts: 3 
+      endpoint_mode: vip  
+      resources:  
+        limits: 
+          cpus: '0.20'  
+          memory: 2G  
+        reservations: 
+          cpus: '0.10'  
+          memory: 512M  
+      labels: 
+        traefik.frontend.passHostHeader: "true" 
+        traefik.port: 9000  
+        #traefik.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gebfe-data-load/"  
+        traefik.internal.frontend.rule: "Host:${FQDN};PathPrefixStrip:/gehc-fx-twilio/"  
+        traefik.external.frontend.rule: "Host:${FQDN_EXT};PathPrefixStrip:/gehc-fx-twilio/"  
+        traefik.docker.network: "docker-gateway"
+        
+networks:
+  docker-gateway:
+    external: true
+    
+
+# close of stack
