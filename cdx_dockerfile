@@ -1,0 +1,8 @@
+#Dockerfile
+
+FROM node:alpine
+COPY . /apps/
+WORKDIR apps/
+RUN npm install
+#RUN npm run compile
+CMD ["npm","start"]
