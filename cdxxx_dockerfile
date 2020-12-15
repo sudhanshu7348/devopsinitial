@@ -1,0 +1,31 @@
+#pull base image
+FROM openjdk:8-jdk-alpine
+
+#args
+ARG dockertarget
+ARG APP_ACTIVE_PROFILE
+
+#ENV
+ENV dockertarget=$dockertarget
+#ENV spring_profiles_active=$APP_ACTIVE_PROFILE
+
+#maintainer 
+MAINTAINER A
+
+#Make a directory /apps
+CMD ["mkdir","/apps"]
+
+#Printin the deliverable name, which will be deployed as a container
+RUN echo "Deliverable : $dockertarget"
+RUN echo "JAVA_OPTS : ${JAVA_OPTS}"
+
+#Copy the deliverable from target directory to apps directory
+COPY ./target /apps/
+
+#Running the jar 
+CMD java ${JAVA_OPTS} -jar /apps/$dockertarget
+
+#expose port 8080
+EXPOSE 8080
+
+
