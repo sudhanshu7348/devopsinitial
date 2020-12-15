@@ -1,0 +1,33 @@
+#!/bin/bash
+echo $Action
+servicePresenceChecking=$(kubectl get pods -n $Environment -o wide | grep $Service-[a-z0-9])
+serviceExistingStatus=$(echo $?)
+serviceStatus=$(kubectl get pods -n $Environment -o wide | grep $Service-[a-z0-9] | awk '{print $3}')
+#kubectl get pods -n $Environment -o wide | grep $Service-[a-z0-9] | awk '{print $1}' > serviceRestartList.txt
+if  [[ $serviceExistingStatus -eq 0 && "$Action" == "Restart" ]]; then    
+                         echo -e "\033[31m *************Removing the service from $Environment environment**************\033[0m"
+                         kubectl delete -f deployments/$Environment/k8s-$Environment-$Service-config.yaml -n $Environment
+                         echo -e "\033[31m *************Starting the service in $Environment environment****************\033[0m"
+                         kubectl apply -f deployments/$Environment/k8s-$Environment-$Service-config.yaml -n $Environment
+elif [[ $serviceExistingStatus -eq 1 && "$Action" == "Restart" ]]; then
+                         echo -e "\033[31m ************Service is not running in the cluster***************************\033[0m"
+elif [[ $serviceExistingStatus -eq 0 && "$Action" == "Stop" ]]; then
+                         echo -e "\033[31m **************Stopping the service***************\033[0m"
+                        if [[ "$Environment" == "uat" ]]; then
+                         echo -e "\033[31m ****************This action is not allowed for this environment***********************\033[0m"
+                        else
+                         echo -e "033[31m ************************Stopping the service*******************************************\033[0m"
+                         kubectl delete -f deployments/$Environment/k8s-$Environment-$Service-config.yaml -n $Environment
+                        fi
+elif [[ $serviceExistingStatus -eq 1 && "$Action" == "Stop" ]]; then
+                       echo -e "033[31m *************Service can't be removed, may be its already stopped in this environment****************\033[0m"
+elif [[ $serviceExistingStatus -eq 0 && "$Action" == "Start" ]]; then
+                       echo -e "033[31m *********************Service is already running***************\033[0m"
+elif [[ $serviceExistingStatus -eq 1 && "$Action" == "Start" ]]; then
+                        if [[ "$Environment" == "uat" ]]; then
+                        echo -e "033[31m ****************This action is not allowed for this environment***********************\033[0m"
+                        else
+                        echo -e "033[31m *********************Starting the service*********************\033[0m"
+                        kubectl apply -f deployments/$Environment/k8s-$Environment-$Service-config.yaml -n $Environment
+                        fi
+fi
