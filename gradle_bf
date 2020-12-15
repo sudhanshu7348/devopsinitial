@@ -1,0 +1,165 @@
+#!groovy
+def PROJECT_VERSION ='0.0.0'
+def ARTIFACT_NAME =''
+def WORKDIR = ''
+pipeline{
+        agent {      
+          label 'swarm_worker'
+      }
+  
+  
+  options { 
+    office365ConnectorWebhooks([[name: 'nprd_bfe_jenkins', notifyFailure: true, notifySuccess: true, startNotification: true, url: 'https://outlook.office.com/webhook/718fa5e8-4c6b-4872-94c4-99445c122eef@15ccb6d1-d335-4996-b6f9-7b6925f08121/JenkinsCI/a1d7753c2a2e41b89eaf15c117858c78/f224158a-2841-44c5-a8d2-de7c9f0c9bd2']])      
+    timestamps ()
+    disableConcurrentBuilds()
+    ansiColor('xterm')
+    authorizationMatrix inheritanceStrategy: inheritingGlobal(), 
+      permissions: [
+        'hudson.model.Item.Build:BFE*bfe_dev_team', 
+        'hudson.model.Item.Cancel:BFE*bfe_dev_team',
+        'hudson.model.Item.Read:BFE*bfe_dev_team', 
+        'hudson.model.Item.Read:BFE*bfe_support_team',
+        'hudson.model.Item.Read:BFE*bfe_viewers'
+        ] 
+  
+  }
+  
+  environment {
+    GITHUB_ACCESS = credentials ('github_npa_pat')
+    GEHC_ARTIFACTORY = credentials ('artifactory_npa_pat')
+    SONAR_ACCESS = credentials ('sonar_npa_pat')
+    DOCKER_REGISTRY = "hc-us-east-aws-artifactory.cloud.health.ge.com"
+    DOCKER_REPO ="docker-bfe-preprod"
+    HOME = "." 
+    
+  }
+  
+  parameters{
+    string(name: 'APP_BRANCH', defaultValue: 'topic-aws-dsenv', description: 'which Branch should I build')
+    choice(name: 'DEPLOY', choices:'false\ntrue', description: 'deploy to branch specific stack environment')
+  }
+  
+  stages{
+    
+    stage('Build Info Set'){
+      steps{
+        script{
+          def triggeredByUser =  "${currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause).getUserName()}"
+          currentBuild.displayName = "${BUILD_DISPLAY_NAME} - ${APP_BRANCH} - ${triggeredByUser}"
+        } //script
+      } // steps
+    } //stage - Build Info Set
+   
+    stage('Build and Test'){
+      /* agent {
+       // docker {
+          // image 'hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-all/maven:3.5'
+          label 'swarm_worker'
+          // args  '-v /tmp:/tmp  --network docker-gateway'
+          // registryUrl 'https://hc-us-east-aws-artifactory.cloud.health.ge.com'
+          // registryCredentialsId 'artifactory_npa_pat'
+        }
+      }*/
+      stages {
+        stage('code_checkout'){
+          steps{
+            dir("${APP_BRANCH}"){
+                    git branch: "${APP_BRANCH}", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/${JOB_BASE_NAME}.git"
+              }
+            } //steps
+        } // stage
+
+        stage('merge check and update version'){
+          steps{
+            sh'''
+              #!/bin/bash
+              cd ${APP_BRANCH}
+              ls -al 
+              ls -al /usr/lib/jvm/java-8-openjdk-amd64/jre/lib/security
+              cp ${WORKSPACE}/gitflow_av/settings.xml .
+              #currentVersion=`mvn -q -Dexec.executable="echo" -Dexec.args='${project.version}' -Dmaven.repo.local=/tmp/mvn_repository/${JOB_BASE_NAME} --non-recursive exec:exec -f pom.xml -s settings.xml`
+              #echo " current version : $currentVersion "
+              #major=`echo $currentVersion | cut -d "." -f1`
+              #minor=`echo $currentVersion | cut -d "." -f2`
+              #micro=`echo $currentVersion | cut -d "." -f3`
+              echo -n "https://${GITHUB_ACCESS}@github.build.ge.com/BFE/${JOB_BASE_NAME}.git" > .git-credentials 
+              git config user.email "Service.BFE_GIT_SERVICE_ACCNT@ge.com" # Functional Account email to be updated
+              git config --global user.name "BFE_GIT_SERVICE_ACCNT, Service" # Functional Account user to be updated
+              git config --global credential.helper "store --file .git-credentials"
+              # git merge --no-commit  --no-ff -v origin/${APP_BRANCH}
+              # case "${APP_BRANCH}" in 
+              #  *feature-FE*)
+              #    echo " Branch is Major Feature "
+              #    major=$((major+1)); minor=0; micro=0
+              #  ;;
+              #  *enhancement-US*)
+              #    echo " Branch is Minor Enhancement "
+              #    minor=$((minor+1)); micro=0
+              #  ;;
+              #  *defect-DE*)
+              #    echo " Branch is Micro Fix "
+              #    micro=$((micro+1))
+              #  ;;
+              #  *topic-*)
+              #    echo " Branch is topic branch "
+              #    # micro=$((micro+1))
+              #  ;;
+              # esac
+              # releaseVersion=${major}.${minor}.${micro}
+              # mvn versions:set -DnewVersion=$releaseVersion -s settings.xml -Dmaven.repo.local=/tmp/mvn_repository/${JOB_BASE_NAME}
+              #git add pom.xml  
+              '''
+            } //steps
+        }// stage
+    
+        stage('topic build and test'){
+          steps{
+            dir ("${APP_BRANCH}") {
+                script {
+                  PROJECT_VERSION = '1.0.3' 
+                  ARTIFACT_NAME = 'uaa'
+                  WORKDIR = pwd()
+                }
+                echo (" Artifact Name = ${ARTIFACT_NAME} Project Version = ${PROJECT_VERSION}  Work Dir = ${WORKDIR} "   )
+              }
+             /* sh'''
+              #!/bin/bash
+              java -version
+              which java 
+              
+              cd ${APP_BRANCH}
+              mvn clean install -s settings.xml -U -Dmaven.repo.local=/tmp/mvn_repository/${JOB_BASE_NAME}
+              '''
+             sh '''
+              #!/bin/bash
+              
+             # keytool -import -alias SonarQube-BFE -trustcacerts -keystore /usr/lib/jvm/java-8-openjdk-amd64/jre/lib/security/cacerts -noprompt -storepass "changeit" -file ${WORKSPACE}/gitflow_av/sonarqube-bfe.der
+              cd ${APP_BRANCH}
+              mvn  -s settings.xml -Dmaven.repo.local=/tmp/mvn_repository/${JOB_BASE_NAME} sonar:sonar 
+              #-Dsonar.branch=${APP_BRANCH} 
+              
+              ''' */
+                    
+            
+          } // steps
+        } //stage 
+        
+      } // stages 
+    } // stage ( build and Test ) 
+   
+    stage('docker_publish'){
+      steps {
+        sh  """
+            #!/bin/bash
+              cd ${WORKDIR}
+              docker --config ~/.${DOCKER_REPO} login --username ${GEHC_ARTIFACTORY_USR} --password ${GEHC_ARTIFACTORY_PSW} ${DOCKER_REGISTRY}
+              docker build . -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:${APP_BRANCH}-${PROJECT_VERSION}
+              docker --config ~/.${DOCKER_REPO} push ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:${APP_BRANCH}-${PROJECT_VERSION}
+            """
+        cleanWs()
+      } //steps       
+    } // stage    
+
+  } //stages 
+
+} // pipeline
