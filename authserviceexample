@@ -1,0 +1,107 @@
+/* jshint esversion: 6 */
+import Pack from '../package.json';
+
+const CONFIG = {
+    info: {
+        title: Pack.name,
+        version: Pack.version,
+    },
+    digitalExpert: {
+        redisPrefix: `DEPREAUTH_${process.env.DEPLOYMENT_ENV || 'dev'}`,
+    },
+    sfdc: {
+        redisPrefix: `SFDC_${process.env.DEPLOYMENT_ENV || 'dev'}`,
+        validClientIdList: (process.env.SFDC_VALID_CLIENTID || '').split(';'),
+        basicToken: process.env.SFDC_INTROSPECT_BASIC_TOKEN,
+        dev: {
+            introspectionUrl: 'https://uat2-gehc.cs16.force.com/geidp/services/oauth2/introspect',
+            userInfo: 'https://uat2-gehc.cs16.force.com/geidp/services/oauth2/userinfo',
+            functionalRole: 'https://uat2-gehc.cs16.force.com/geidp/services/apexrest/User?ApplicationName=GEHealthcare',
+        },
+        qa: {
+            introspectionUrl: 'https://uat2-gehc.cs16.force.com/geidp/services/oauth2/introspect',
+            userInfo: 'https://uat2-gehc.cs16.force.com/geidp/services/oauth2/userinfo',
+            functionalRole: 'https://uat2-gehc.cs16.force.com/geidp/services/apexrest/User?ApplicationName=GEHealthcare',
+        },
+        uat: {
+            introspectionUrl: 'https://uat2-gehc.cs16.force.com/geidp/services/oauth2/introspect',
+            userInfo: 'https://uat2-gehc.cs16.force.com/geidp/services/oauth2/userinfo',
+            functionalRole: 'https://uat2-gehc.cs16.force.com/geidp/services/apexrest/User?ApplicationName=GEHealthcare',
+        },
+        stage: {
+            introspectionUrl: 'https://uat2-gehc.cs16.force.com/geidp/services/oauth2/introspect',
+            userInfo: 'https://uat2-gehc.cs16.force.com/geidp/services/oauth2/userinfo',
+            functionalRole: 'https://uat2-gehc.cs16.force.com/geidp/services/apexrest/User?ApplicationName=GEHealthcare',
+        },
+        prod: {
+            introspectionUrl: 'https://logon.gehealthcare.com/geidp/services/oauth2/introspect',
+            userInfo: 'https://logon.gehealthcare.com/services/oauth2/userinfo',
+            functionalRole: 'https://logon.gehealthcare.com/services/apexrest/User?ApplicationName=GEHealthcare',
+        },
+        devMyGehc: {
+            // introspectionUrl: 'https://dev-gehc.cs34.force.com/geidp/services/oauth2/introspect',
+            // userInfo: 'https://dev-gehc.cs34.force.com/geidp/services/oauth2/userinfo',
+            // functionalRole: 'https://dev-gehc.cs34.force.com/geidp/services/apexrest/User?ApplicationName=GEHealthcare',
+            introspectionUrl: 'https://uat2-gehc.cs16.force.com/geidp/services/oauth2/introspect',
+            userInfo: 'https://uat2-gehc.cs16.force.com/geidp/services/oauth2/userinfo',
+            functionalRole: 'https://uat2-gehc.cs16.force.com/geidp/services/apexrest/User?ApplicationName=GEHealthcare',
+        }
+    },
+    geOIDC: {
+        redisPrefix: `GE_OIDC_${process.env.DEPLOYMENT_ENV || 'dev'}`,
+        validClientIdList: (process.env.SFDC_VALID_CLIENTID || '').split(';'),
+        validOidcClientIdList: (process.env.GE_OIDC_VALID_CLIENT_IDS || '').split(';'),
+        basicToken: process.env.SFDC_INTROSPECT_BASIC_TOKEN,
+        dev: {
+            introspectionUrl: 'https://uat2-gehc.cs24.force.com/geidp/services/oauth2/introspect',
+            userInfo: 'https://uat2-gehc.cs24.force.com/geidp/services/oauth2/userinfo',
+            functionalRole: 'https://uat2-gehc.cs24.force.com/geidp/services/apexrest/User?ApplicationName=GEHealthcare',
+        },
+        qa: {
+            introspectionUrl: 'https://uat2-gehc.cs24.force.com/geidp/services/oauth2/introspect',
+            userInfo: 'https://uat2-gehc.cs24.force.com/geidp/services/oauth2/userinfo',
+            functionalRole: 'https://uat2-gehc.cs24.force.com/geidp/services/apexrest/User?ApplicationName=GEHealthcare',
+        },
+        uat: {
+            introspectionUrl: 'https://uat2-gehc.cs24.force.com/geidp/services/oauth2/introspect',
+            userInfo: 'https://uat2-gehc.cs24.force.com/geidp/services/oauth2/userinfo',
+            functionalRole: 'https://uat2-gehc.cs24.force.com/geidp/services/apexrest/User?ApplicationName=GEHealthcare',
+        },
+        stage: {
+            introspectionUrl: 'https://uat2-gehc.cs24.force.com/geidp/services/oauth2/introspect',
+            userInfo: 'https://uat2-gehc.cs24.force.com/geidp/services/oauth2/userinfo',
+            functionalRole: 'https://uat2-gehc.cs24.force.com/geidp/services/apexrest/User?ApplicationName=GEHealthcare',
+        },
+        prod: {
+            introspectionUrl: 'https://logon.gehealthcare.com/geidp/services/oauth2/introspect',
+            userInfo: 'https://logon.gehealthcare.com/services/oauth2/userinfo',
+            functionalRole: 'https://logon.gehealthcare.com/services/apexrest/User?ApplicationName=GEHealthcare',
+        },
+    },
+    stage: {
+        userInfo: 'https://fssfed.stage.ge.com/fss/idp/userinfo.openid',
+        authUrl: 'https://fssfed.stage.ge.com/fss/as/authorization.oauth2',
+        tokenUrl: 'https://fssfed.stage.ge.com/fss/as/token.oauth2',
+        logoutURL: 'https://ssologin.qagen2.corporate.ge.com/logoff/logoff.jsp?referrer=https://',
+        introspectionUrl: 'https://fssfed.stage.ge.com/fss/as/introspect.oauth2',
+    },
+    prod: {
+        userInfo: 'https://fssfed.ge.com/fss/idp/userinfo.openid',
+        authUrl: 'https://fssfed.ge.com/fss/as/authorization.oauth2',
+        tokenUrl: 'https://fssfed.ge.com/fss/as/token.oauth2',
+        logoutURL: 'https://ssologin.ssogen2.corporate.ge.com/logoff/logoff.jsp?referrer=https://',
+        introspectionUrl: 'https://fssfed.ge.com/fss/as/introspect.oauth2',
+    },
+    dev: {
+        userInfo: 'https://fssfed.stage.ge.com/fss/idp/userinfo.openid',
+        authUrl: 'https://fssfed.stage.ge.com/fss/as/authorization.oauth2',
+        tokenUrl: 'https://fssfed.stage.ge.com/fss/as/token.oauth2',
+        logoutURL: 'https://ssologin.qagen2.corporate.ge.com/logoff/logoff.jsp?referrer=https://',
+        introspectionUrl: 'https://fssfed.stage.ge.com/fss/as/introspect.oauth2',
+    }
+};
+CONFIG.sfdc.local = CONFIG.sfdc.dev;
+CONFIG.stage.sfdc = CONFIG.sfdc.stage;
+CONFIG.prod.sfdc = CONFIG.sfdc.prod;
+CONFIG.dev.sfdc = CONFIG.sfdc.devMyGehc;
+module.exports = CONFIG;
