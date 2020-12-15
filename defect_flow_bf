@@ -1,0 +1,325 @@
+#!groovy
+
+def PROJECT_VERSION ='0.0.0'
+def ARTIFACT_NAME =''
+def SERVICE_NAME=''
+pipeline {
+agent { label 'swarm_worker' }
+
+  options {
+    office365ConnectorWebhooks([[name: 'nprd_bfe_jenkins', notifyFailure: true, notifySuccess: true, startNotification: true, url: 'https://outlook.office.com/webhook/718fa5e8-4c6b-4872-94c4-99445c122eef@15ccb6d1-d335-4996-b6f9-7b6925f08121/JenkinsCI/a1d7753c2a2e41b89eaf15c117858c78/f224158a-2841-44c5-a8d2-de7c9f0c9bd2']])
+    timestamps ()
+    disableConcurrentBuilds()
+    ansiColor('xterm')
+    authorizationMatrix inheritanceStrategy: inheritingGlobal(), 
+      permissions: [
+        'hudson.model.Item.Build:BFE*bfe_dev_team', 
+        'hudson.model.Item.Cancel:BFE*bfe_dev_team',
+        'hudson.model.Item.Read:BFE*bfe_dev_team', 
+        'hudson.model.Item.Read:BFE*bfe_support_team'
+        ] 
+    }
+
+    environment {
+    GITHUB_ACCESS = credentials ('github_npa_pat')
+    GEHC_ARTIFACTORY = credentials ('artifactory_npa_pat')
+    SONAR_ACCESS = credentials ('sonar_npa_pat')
+    DOCKER_REGISTRY = "hc-us-east-aws-artifactory.cloud.health.ge.com"
+    DOCKER_REPO ="docker-bfe-preprod"
+    PROD_DOCKER_REPO ="docker-bfe-prod"
+    HOME = "." 
+    
+  }
+
+  parameters{
+    choice(name: 'DEFECT_ACTION', choices:['stage-version-update','prod-version-update'], description: 'Choose either to perform verify on Test env or Deploy to Prod with code merge to master ')
+    string(name: 'DEFECT_BRANCH', defaultValue: 'defectfix_DE55304_F62486', description: 'which Defect Branch should I build')
+    // choice(name: 'APP_REPO', choices: 'gebfe-uaa\ngebfe-billing-invoice', description: 'which Service Repo should I build')
+    choice (name: 'APP_REPO', choices: ['default_null', 'gebfe-authorizer', 'gebfe-automation', 'gebfe-billing-invoice', 'gebfe-blobstore', 'gebfe-case-accrual-invoice-generation', 'gebfe-case-ar-export', 'gebfe-case-bulk-invoice-generation', 'gebfe-case-channel-partner', 'gebfe-case-invoice-generation', 'gebfe-cfd-batch-scheduler', 'gebfe-contract-ar-export', 'gebfe-contract-invoice-generation', 'gebfe-credit-rebill', 'gebfe-finance-view', 'gebfe-glprod-callback', 'gebfe-import-smaxdata', 'gebfe-invoice-revrec-bulk-api', 'gebfe-liquidation-accounting', 'gebfe-liquidation-gl-export', 'gebfe-part-cost', 'gebfe-reverse-interface-for-case-contract', 'gebfe-service-offering-bulk-api-assetip', 'gebfe-smax-account-address-asset', 'gebfe-smax-contract', 'gebfe-uaa', 'gebfe-ui', 'gebfe-uscan-manual-case-invoice-generation','gebfe-uscan-cfd'], description: 'Select Service Name')
+
+  }
+
+  stages {
+    stage('Build Info Set'){
+      steps{
+        script{
+          def triggeredByUser =  "${currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause).getUserName()}"
+          currentBuild.displayName = "${BUILD_DISPLAY_NAME} - ${APP_REPO} - ${DEFECT_BRANCH} - ${DEFECT_ACTION} - ${triggeredByUser}"
+        } //script
+      } // steps
+    } //stage - Build Info Set
+    stage('Pull_Request_Status') {
+      when{ expression { params.PATCH_ACTION == 'prod-version-update' } }
+      steps{
+        sh """
+          export PATH=$PATH:/mnt/efs/devops-stack/
+          pull_request=\$(curl -H 'Content-Type: application/json' -u ${GITHUB_ACCESS_USR}:${GITHUB_ACCESS_PSW} https://github.build.ge.com/api/v3/repos/BFE/${APP_REPO}/pulls?state=open | jq '.[] | select(.head.ref == "${DEFECT_BRANCH}" ) | .url' | cut -d'"' -f2)
+          echo \${pull_request}
+          
+	        pull_request_status=\$(curl -H 'Content-Type: application/json' -u ${GITHUB_ACCESS_USR}:${GITHUB_ACCESS_PSW} \${pull_request}/reviews | jq '.[] | select( .state == "APPROVED") | .state ')
+          echo \${pull_request_status}
+          
+          case \${pull_request_status} in 
+            *APPROVED* )
+            echo " continue with promotion activity"
+            ;;
+            * )
+            echo "Pull Request is not yet Approved  Aborting the Promote job"
+              exit 1
+            ;;
+          esac
+        
+        """
+      } //steps
+    } // stage pull requst status completed
+
+    stage('Build Phase '){
+      agent {
+        docker { // maven or Node based on the APP_NAME should be defined in here itself
+          image 'hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-all/maven:3.5'
+          reuseNode true
+          label 'swarm_worker'
+          args  '-v /tmp:/tmp  --network docker-gateway'
+          registryUrl 'https://hc-us-east-aws-artifactory.cloud.health.ge.com'
+          registryCredentialsId 'artifactory_npa_pat'
+        }
+      }
+      // Code checkout ; merge check ; update patch version ; Build and Sonar scan
+      // publish to Pre-Prod Artifactory |promote to Prod Artifactory ;
+      stages {
+        stage('code_checkout'){
+          steps{
+            dir("${DEFECT_BRANCH}"){
+              git branch: "master", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/${APP_REPO}.git"
+              }
+            } //steps
+        } // code_checkout stage
+
+        stage('merge_check & update_version'){
+          steps{
+            sh'''
+              #!/bin/bash
+              cd ${DEFECT_BRANCH}
+              cp ${WORKSPACE}/gitflow_av/settings.xml .
+              currentVersion=`mvn -q -Dexec.executable="echo" -Dexec.args='${project.version}' -Dmaven.repo.local=/tmp/mvn_repository/${APP_REPO} --non-recursive exec:exec -f pom.xml -s settings.xml`
+              echo " current version : $currentVersion "
+              major=`echo $currentVersion | cut -d "." -f1`
+              minor=`echo $currentVersion | cut -d "." -f2`
+              micro=`echo $currentVersion | cut -d "." -f3`
+              echo -n "https://${GITHUB_ACCESS}@github.build.ge.com/BFE/${APP_REPO}.git" > .git-credentials
+              git config user.email "Service.BFE_GIT_SERVICE_ACCNT@ge.com" # Functional Account email to be updated
+              git config --global user.name "BFE_GIT_SERVICE_ACCNT, Service" # Functional Account user to be updated
+              git config --global credential.helper "store --file .git-credentials"
+              
+              case "${DEFECT_BRANCH}" in
+                *defectfix_*)
+                echo " Branch is Micro Fix "
+                # check if branch is already merged to master branch if yes then abort
+                git merge --no-commit  --no-ff -v origin/${DEFECT_BRANCH}
+                micro=$((micro+1))
+                ;;
+                # other than patch fix branch all other branches should be aborted
+                *)
+                echo " Branch is not patchfix  branch abort the job "
+                exit 1
+              ;;
+              esac
+              releaseVersion=${major}.${minor}.${micro}
+              mvn versions:set -DnewVersion=$releaseVersion -s settings.xml -Dmaven.repo.local=/tmp/mvn_repository/${APP_REPO}
+              git add pom.xml
+              '''
+            dir ("${DEFECT_BRANCH}") {
+                script {
+                  PROJECT_VERSION = readMavenPom().getVersion() 
+                  ARTIFACT_NAME = readMavenPom().getArtifactId()
+                  
+                }
+                echo (" Artifact Name = ${ARTIFACT_NAME} Project Version = ${PROJECT_VERSION} " )
+              }
+	  
+          } // steps
+        } //stage
+        stage('Build and Publish'){
+          when{ expression { params.DEFECT_ACTION == 'stage-version-update' } }
+          steps {
+            sh """
+              #!/bin/bash
+              cd ${DEFECT_BRANCH}
+              mvn clean install -s settings.xml -U -Dmaven.repo.local=/tmp/mvn_repository/${APP_REPO}
+              # mvn  -s settings.xml -Dmaven.repo.local=/tmp/mvn_repository/${JOB_BASE_NAME} sonar:sonar 
+            """
+          }
+        
+        
+        }
+        stage('Merge and Tag'){
+          when{ expression { params.DEFECT_ACTION == 'prod-version-update' } }
+          steps {
+            sh """
+              #!/bin/bash
+              cd ${DEFECT_BRANCH}
+              echo -n "https://${GITHUB_ACCESS}@github.build.ge.com/BFE/${APP_REPO}.git" > .git-credentials 
+              git config user.email "Service.BFE_GIT_SERVICE_ACCNT@ge.com" # Functional Account email to be updated
+              git config --global user.name "BFE_GIT_SERVICE_ACCNT, Service" # Functional Account user to be updated
+              git config --global credential.helper "store --file .git-credentials"
+              git status
+              git commit -m "Release Version : ${PROJECT_VERSION} merged ${DEFECT_BRANCH}"
+              git log -2
+              git tag -a "${PROJECT_VERSION}-${DEFECT_BRANCH}" -m "Release Version : ${PROJECT_VERSION} merged ${DEFECT_BRANCH}"
+              git remote get-url origin
+              git push --set-upstream origin master --tags
+	      # git push -d origin ${DEFECT_BRANCH}
+            """
+          }
+        
+          
+        }
+	 
+      } //stages inside the worker label  
+    }// stage build phase
+	stage ('Publish to Non-Prod Artifactory'){ 
+    when{ expression { params.DEFECT_ACTION == 'stage-version-update' } }
+    steps{
+	sh """
+        #!/bin/bash
+        # perform the deploy service 
+        cd ${DEFECT_BRANCH}
+        docker --config ~/.${DOCKER_REPO} login --username ${GEHC_ARTIFACTORY_USR} --password ${GEHC_ARTIFACTORY_PSW} ${DOCKER_REGISTRY}
+        echo " Verify on Test "
+	docker build . -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:${PROJECT_VERSION}-${DEFECT_BRANCH}
+	docker --config ~/.${DOCKER_REPO} push ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:${PROJECT_VERSION}-${DEFECT_BRANCH}
+        """
+    } //steps
+  } //stage Non Prod Artifactory 
+  
+  stage('Promote to Prod Artifactory'){
+    when{ expression { params.DEFECT_ACTION == 'prod-version-update' } }
+    steps{
+      sh """
+        #!/bin/bash
+        # perform the deploy service 
+        cd ${DEFECT_BRANCH}
+	echo " Promote to Prod Artifactory"
+        curl  -v --location-trusted -H "X-JFrog-Art-Api:${GEHC_ARTIFACTORY_PSW}" -H 'Content-Type: application/json' -X POST -d '{"targetRepo":"${PROD_DOCKER_REPO}","dockerRepository":"${ARTIFACT_NAME}","tag":"${PROJECT_VERSION}-${DEFECT_BRANCH}","targetTag":"${PROJECT_VERSION}-${DEFECT_BRANCH}","copy":true}' "${DOCKER_REGISTRY}/artifactory/api/docker/${DOCKER_REPO}/v2/promote"
+	"""
+    }	// steps
+  } //stage Promote to Prod Artifactory
+  // update docker stack repo with the tag version appropriately 
+   // stage('Docker Stack Update'){
+      /* agent {
+        docker { // maven or Node based on the APP_NAME should be defined in here itself
+          image 'hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-all/maven:3.5'
+          reuseNode true
+          label 'swarm_worker'
+          args  '-v /tmp:/tmp  --network docker-gateway'
+          registryUrl 'https://hc-us-east-aws-artifactory.cloud.health.ge.com'
+          registryCredentialsId 'artifactory_npa_pat'
+        }
+      }*/
+	    
+      
+	stage('stack_checkout'){
+	  steps{
+	    dir("gebfe-docker-stack"){
+	      git branch: "master", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/gebfe-docker-stack.git"
+	      }
+	    } //steps
+	} // code_checkout stage
+        
+        stage('Update Test Environment Version'){
+          when{ expression { params.DEFECT_ACTION == 'stage-version-update' } }
+          steps{
+            sh """
+            cd gebfe-docker-stack
+	    echo -n "https://${GITHUB_ACCESS}@github.build.ge.com/BFE/${APP_REPO}.git" > .git-credentials 
+              git config user.email "Service.BFE_GIT_SERVICE_ACCNT@ge.com" # Functional Account email to be updated
+              git config --global user.name "BFE_GIT_SERVICE_ACCNT, Service" # Functional Account user to be updated
+              git config --global credential.helper "store --file .git-credentials"
+	    # update smax stage env file
+	   export
+	   echo "${ARTIFACT_NAME} ${PROJECT_VERSION} - ${DEFECT_BRANCH}"
+	    if  grep "/${ARTIFACT_NAME}:" gebfe-smax-docker-stack.yml ; then
+	    	echo "artifact found in gebfe-smax-docker-stack.yml as such gebfe-smax-stage-version.env will be updated with ${PROJECT_VERSION}-${DEFECT_BRANCH} "
+	    	
+		sed "s/[{}]//g" gebfe-smax-docker-stack.yml
+		export SERVICE_NAME=`sed 's/[{}]//g' gebfe-smax-docker-stack.yml | grep "/${ARTIFACT_NAME}:" | cut -d':' -f3 | cut -c 2-`
+		echo " service name is  : \${SERVICE_NAME}"
+		sed   -i "s/\${SERVICE_NAME}=.*/\${SERVICE_NAME}=${PROJECT_VERSION}-${DEFECT_BRANCH}/g" gebfe-smax-stage-version.env
+		git add gebfe-smax-stage-version.env
+	    else
+	    	echo "Sorry this artifact is  not in gebfe-smax-docker-stack.yml"
+	    fi
+	    # update uscan test env file
+	    
+	    if  grep "${ARTIFACT_NAME}:" gebfe-uscan-docker-stack.yml ;then
+	    	echo " artifact found in gebfe-uscan-docker-stack.yml as such gebfe-uscan-stage-version.env will be updated with ${PROJECT_VERSION}-${DEFECT_BRANCH} "
+	    	export SERVICE_NAME=`sed 's/[${}]//g' gebfe-uscan-docker-stack.yml | grep "/${ARTIFACT_NAME}:" | cut -d":" -f3 | cut -c 2-`
+		echo " service name is  : \${SERVICE_NAME}"
+		
+		sed -i "s/\${SERVICE_NAME}=.*/\${SERVICE_NAME}=${PROJECT_VERSION}-${DEFECT_BRANCH}/g" gebfe-uscan-stage-version.env
+		 git add gebfe-uscan-stage-version.env
+	    else
+	    	echo "Sorry this artifact is  not in gebfe-uscan-docker-stack.yml"
+	    fi
+	    
+	    git status 
+	    git commit -m "Release Version updated in stage version env file for \${SERVICE_NAME} : ${PROJECT_VERSION}-${DEFECT_BRANCH}"
+            git log -2
+            git remote get-url origin
+            git push --set-upstream origin master
+            """
+          
+          } //steps
+        
+        } // test version env update
+        stage('Update Prod Environment Version'){
+          when{ expression { params.DEFECT_ACTION == 'prod-version-update' } }
+          steps{
+          sh """
+            cd gebfe-docker-stack
+	    echo -n "https://${GITHUB_ACCESS}@github.build.ge.com/BFE/${APP_REPO}.git" > .git-credentials 
+              git config user.email "Service.BFE_GIT_SERVICE_ACCNT@ge.com" # Functional Account email to be updated
+              git config --global user.name "BFE_GIT_SERVICE_ACCNT, Service" # Functional Account user to be updated
+              git config --global credential.helper "store --file .git-credentials"
+	    # update smax prod env file
+	    if [ grep -q "/${ARTIFACT_NAME}:" gebfe-smax-docker-stack.yml ];then
+	    	echo " artifact found in gebfe-smax-docker-stack.yml as such gebfe-smax-prod-version.env will be updated with ${PROJECT_VERSION}-${DEFECT_BRANCH} "
+	    	SERVICE_NAME=`sed 's/[{}]//g' gebfe-smax-docker-stack.yml | grep "/${ARTIFACT_NAME}:" | cut -d":" -f3 | cut -c 2-`
+		echo " service name is  : \${SERVICE_NAME}"
+		sed  -i "s/\${SERVICE_NAME}_VERSION=.*/\${SERVICE_NAME}_VERSION=${PROJECT_VERSION}-${DEFECT_BRANCH}/g" gebfe-smax-prod-version.env
+	    	git add gebfe-smax-prod-version.env
+	    else
+	    	echo "Sorry this artifact is  not in gebfe-smax-docker-stack.yml"
+	    fi
+	    # update uscan prod env file
+	    if [ grep -q "/${ARTIFACT_NAME}:" gebfe-uscan-docker-stack.yml ];then
+	    	echo " artifact found in gebfe-uscan-docker-stack.yml as such gebfe-uscan-prod-version.env will be updated with ${PROJECT_VERSION}-${DEFECT_BRANCH} "
+	    	SERVICE_NAME=`sed 's/[{}]//g' gebfe-uscan-docker-stack.yml | grep "/${ARTIFACT_NAME}:" | cut -d":" -f3`
+		echo " service name is  : \${SERVICE_NAME}"
+		
+		sed  -i "s/\${SERVICE_NAME}_VERSION=.*/\${SERVICE_NAME}_VERSION=${PROJECT_VERSION}-${DEFECT_BRANCH}/g" gebfe-uscan-prod-version.env
+		git add gebfe-uscan-prod-version.env
+	    else
+	    	echo "Sorry this artifact is  not in gebfe-uscan-docker-stack.yml"
+	    fi
+	    
+	    git status 
+	    git commit -m "Release Version updated in prod version env file for \${SERVICE_NAME} : ${PROJECT_VERSION}-${DEFECT_BRANCH}"
+            git log -2
+            git remote get-url origin
+            git push --set-upstream origin master
+            """
+          } //steps
+        
+        } // Update Prod Environment Version
+    
+  }//stages
+
+post{
+	always { 
+            echo 'I will always say Hello again!'
+            cleanWs()
+        }
+} //post
+
+}//pipeline
