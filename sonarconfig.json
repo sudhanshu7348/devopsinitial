@@ -1,0 +1,14 @@
+sonar.host.url="http://cdx-sonarqube.cloud.health.ge.com/"
+sonar.login=80aceef40bae90dd5630fe2c6330ebd40540caa0
+sonar.projectKey=gehc.mobile.m1.authentication
+sonar.projectName=gehc.mobile.m1.authentication
+sonar.projectVersion="1.0"
+sonar.sourceEncoding=UTF-8
+sonar.sources=src
+sonar.exclusions=**/test**/**
+sonar.java.binaries=src
+#sonar.exclusions=**/node_modules/**,**/*.spec.ts
+#sonar.tests=./test
+#sonar.test.inclusions=**/*.spec.ts, **/*.test.karma.ts
+#sonar.cobertura.reportPath=**/test_report/mocha/cobertura-coverage.xml
+#sonar.language=js
