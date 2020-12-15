@@ -1,0 +1,213 @@
+#!groovy
+def PROJECT_VERSION ='0.0.0'
+def ARTIFACT_NAME =''
+def SERVICE_NAME=''
+def ENVIRONMENT = ""
+
+pipeline
+{
+    agent 
+    {
+        label 'swarm_worker'
+    }
+    options 
+    { 
+        office365ConnectorWebhooks([[name: 'nprd_bfe_jenkins', notifyFailure: true, notifySuccess: true, startNotification: true, url: 'https://outlook.office.com/webhook/718fa5e8-4c6b-4872-94c4-99445c122eef@15ccb6d1-d335-4996-b6f9-7b6925f08121/JenkinsCI/a1d7753c2a2e41b89eaf15c117858c78/f224158a-2841-44c5-a8d2-de7c9f0c9bd2']])
+        timestamps ()
+        disableConcurrentBuilds()
+        ansiColor('xterm')
+        authorizationMatrix inheritanceStrategy: inheritingGlobal(), 
+        permissions: [
+        'hudson.model.Item.Build:BFE*bfe_dev_team', 
+        'hudson.model.Item.Cancel:BFE*bfe_dev_team', 
+        'hudson.model.Item.Read:BFE*bfe_dev_team', 
+        'hudson.model.Item.Read:BFE*bfe_support_team'
+        ] 
+    }
+    environment 
+    {
+        GITHUB_ACCESS = credentials ('github_npa_pat')
+        GEHC_ARTIFACTORY = credentials ('artifactory_npa_pat')
+        SONAR_ACCESS = credentials ('sonar_npa_pat')
+        COVERITY_ACCESS = credentials ('coverity_npa_pat')
+        COVERITY_URL = "http://coverity.cloud.health.ge.com"
+        DOCKER_REGISTRY = "hc-us-east-aws-artifactory.cloud.health.ge.com"
+        DOCKER_REPO ="docker-bfe-preprod"
+        //REPO_NAME="gebfe-finance-view"
+        HOME = "." 
+          
+    }
+  
+    parameters
+    {
+        
+        choice(name: 'PRD_PROMOTE', choices:'stage', description: 'choose dev or stage to promote uat')
+        choice(name: 'APP_NAME', choices:'smax\nuscan', description: 'choose smax or uscan')
+    }
+  
+    stages
+    {
+        stage('Build Info Set')
+        {
+            steps
+            {
+                script
+                {
+                    def triggeredByUser =  "${currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause).getUserName()}"
+                    currentBuild.displayName = "${BUILD_DISPLAY_NAME}  - ${triggeredByUser}"
+                } //script
+            } // steps
+        } //stage - Build Info Set
+	  
+        stage('stack_checkout'){
+	  steps{
+	    dir("gebfe-docker-stack"){
+	      git branch: "test", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/gebfe-docker-stack.git"
+	      }
+	    } //steps
+	} // code_checkout stage   
+	  
+        
+       
+	   stage('Update prod Environment Version'){
+     steps{
+       sh """
+       #!/bin/bash
+       
+       
+	            
+                        cd gebfe-docker-stack
+                        echo -n "https://${GITHUB_ACCESS}@github.build.ge.com/BFE/gebfe-docker-stack.git" > .git-credentials 
+                        git config user.email "Service.BFE_GIT_SERVICE_ACCNT@ge.com" # Functional Account email to be updated
+                        git config --global user.name "BFE_GIT_SERVICE_ACCNT, Service" # Functional Account user to be updated
+                        git config --global credential.helper "store --file .git-credentials"
+                        # update smax prod update env file
+                        export
+                        
+                        if  [ "${PRD_PROMOTE}" = "stage" ] && [ "${APP_NAME}" = "smax" ] ; then
+			           
+                            if  grep "FQDN=bfe.cloud.health.ge.com"  gebfe-smax-prod-version.env ; then
+                                diff gebfe-smax-prod-version.env gebfe-smax-stage-version.env | tee diffs
+				                sleep 5s
+                                patch -i diffs gebfe-smax-prod-version.env
+                                cat diffs gebfe-smax-prod-version.env
+                                #echo "GEBFE_AUTHORIZER_VERSION=topic-aws-dsenv-1.0.0" >> gebfe-smax-prod-version.env
+				echo "GEBFE_AUTHORIZER_VERSION=topic-aws-dsenv-1.0.0" | tee -a gebfe-smax-prod-version.env
+				#sed -i -e "s/1.2.0-enhancement_us482392_f60359_repocleanup/topic-aws-dsenv-1.0.0/g" "gebfe-smax-prod-version.env"
+				sed -i -e "s/stg-bfe.cloud.health.ge.com/bfe.cloud.health.ge.com/g" "gebfe-smax-prod-version.env"
+				sed -i -e "s/stg-bfe.cloud.gehealthcare.com/bfe.cloud.gehealthcare.com/g" "gebfe-smax-prod-version.env"
+				sed -i -e "s/gebfe-smax-stage.env/gebfe-smax-prod.env/g" "gebfe-smax-prod-version.env"
+                git add gebfe-smax-prod-version.env
+                            else
+                                echo "this artifact is not utilized in gebfe-smax-prod-version.env"
+                            fi
+                        
+                        fi
+                
+                        # update uscan prod update env file
+                        if  [ "${PRD_PROMOTE}" = "stage" ] && [ "${APP_NAME}" = "uscan" ] ; then
+                            if  grep "FQDN=bfe-uscan.cloud.health.ge.com"  gebfe-uscan-prod-version.env ; then
+                                diff gebfe-uscan-prod-version.env gebfe-uscan-stage-version.env | tee diffs
+				                sleep 5s
+                                patch -i diffs gebfe-uscan-prod-version.env
+                                cat diffs gebfe-uscan-prod-version.env
+				echo -e "\nGEBFE_USCAN_AUTHORIZER_VERSION=topic-aws-dsenv-0.0.1-SNAPSHOT" >> gebfe-uscan-prod-version.env
+				#echo "GEBFE_USCAN_AUTHORIZER_VERSION=topic-aws-dsenv-0.0.1-SNAPSHOT" >> gebfe-uscan-prod-version.env
+				#echo -n "GEBFE_USCAN_AUTHORIZER_VERSION=topic-aws-dsenv-0.0.1-SNAPSHOT" | tee -a gebfe-uscan-prod-version.env
+				#sed -i -e "s/1.2.0-enhancement_us482392_f60359_repocleanup/topic-aws-dsenv-0.0.1-SNAPSHOT/g" "gebfe-uscan-prod-version.env"
+				sed -i -e "s/stg-bfe-uscan.cloud.health.ge.com/bfe-uscan.cloud.health.ge.com/g" "gebfe-uscan-prod-version.env"
+				sed -i -e "s/stg-bfe-uscan.cloud.gehealthcare.com/bfe-uscan.cloud.gehealthcare.com/g" "gebfe-uscan-prod-version.env"
+				sed -i -e "s/gebfe-uscan-stage.env/gebfe-uscan-prod.env/g" "gebfe-uscan-prod-version.env"
+                                git add gebfe-uscan-prod-version.env
+                            else
+                                echo "this artifact is  not utilized in gebfe-uscan-prod-version.env"
+                            fi
+                        
+                        
+                        fi
+                
+                        if git diff-index --quiet HEAD --; then
+                            echo "no version change "
+                        else
+                            git commit -m " Release Version updated in prod from stage version files"
+                            git log -2
+                            git push -f origin test
+                        fi
+                    """
+            } //steps
+        }//stage('Merge and promote')
+        
+	   /* stage('stack_checkout_deploy')
+        {
+            agent { label 'swarm_manager' }	 
+            steps
+            {
+                dir("${APP_NAME}")
+                {
+                    git branch: "test", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/gebfe-docker-stack.git"
+                    sh  '''
+                            #!/bin/bash
+                            export
+                            echo "${APP_NAME}"
+                            if  [ "${DEV_PROMOTE}" = "dev" ] ; then
+                                ENVIRONMENT="uat"
+				 docker --config ~/.${BFE_DOCKER_REPO} login --username ${GEHC_ARTIFACTORY_USR} --password ${GEHC_ARTIFACTORY_PSW} ${DOCKER_REGISTRY}
+                            export $(cat gebfe-${APP_NAME}-${ENVIRONMENT}-version.env)
+                            export $(cat gebfe-${APP_NAME}-${ENVIRONMENT}-replica.env)
+                            export
+                            sed -i 's!env-!dev-!g' gebfe-${APP_NAME}-docker-stack.yml
+                            grep dev- gebfe-${APP_NAME}-docker-stack.yml
+			    
+                            elif  [ "${DEV_PROMOTE}" = "stage" ] ; then
+                                ENVIRONMENT="uat"
+			 docker --config ~/.${BFE_DOCKER_REPO} login --username ${GEHC_ARTIFACTORY_USR} --password ${GEHC_ARTIFACTORY_PSW} ${DOCKER_REGISTRY}
+                            export $(cat gebfe-${APP_NAME}-${ENVIRONMENT}-version.env)
+                            export $(cat gebfe-${APP_NAME}-${ENVIRONMENT}-replica.env)
+                            export
+                            sed -i 's!env-!dev-!g' gebfe-${APP_NAME}-docker-stack.yml
+                            grep dev- gebfe-${APP_NAME}-docker-stack.yml
+                            
+                            elif  [ "${DEV_PROMOTE}" = "true" ]  ; then
+                                ENVIRONMENT="stage"
+                            fi
+                            echo $ENVIRONMENT
+                           
+                            echo " success"
+                        '''
+                }
+            } //steps 
+        } // stage('stack_checkout')
+	    //docker --config ~/.${BFE_DOCKER_REPO} -D stack deploy -c gebfe-${APP_NAME}-docker-stack.yml ${ENVIRONMENT}-${APP_NAME}
+	    //docker --config ~/.${BFE_DOCKER_REPO} -D stack deploy -c gebfe-${APP_NAME}-docker-stack.yml ${ENVIRONMENT}-${APP_NAME}
+    
+        stage('pre-prod_sanity_check')
+        {
+            agent { label 'swarm_manager' }
+            steps {
+                    sh  '''
+                            #!/bin/bash
+                            if  [ "${DEV_PROMOTE}" = "dev" ] ; then
+                                ENVIRONMENT="uat"
+                            elif  [ "${DEV_PROMOTE}" = "stage" ] ; then
+                                ENVIRONMENT="uat"
+                            
+                            elif  [ "${DEV_PROMOTE}" = "true" ]  ; then
+                                ENVIRONMENT="stage"
+                            fi
+                            sleep 2m
+                            docker stack ps  ${ENVIRONMENT}-${APP_NAME} | grep Running 
+                        '''
+            } //steps 
+        } // stage('pre-prod_sanity_check')*/
+        
+    } //stages 
+    post 
+    { 
+        always 
+        { 
+            echo 'I will always say Hello again!'
+	    cleanWs()
+		
+        }
+    }
+}// pipeline
