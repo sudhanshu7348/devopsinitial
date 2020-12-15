@@ -1,0 +1,169 @@
+#!groovy
+
+def PROJECT_VERSION ='0.0.0'
+def ARTIFACT_NAME =''
+def SERVICE_NAME=''
+
+pipeline {
+agent { label 'swarm_worker' }
+
+  options {
+    office365ConnectorWebhooks([[name: 'nprd_bfe_jenkins', notifyFailure: true, notifySuccess: true, startNotification: true, url: 'https://outlook.office.com/webhook/718fa5e8-4c6b-4872-94c4-99445c122eef@15ccb6d1-d335-4996-b6f9-7b6925f08121/JenkinsCI/a1d7753c2a2e41b89eaf15c117858c78/f224158a-2841-44c5-a8d2-de7c9f0c9bd2']])  
+    timestamps ()
+    disableConcurrentBuilds()
+    ansiColor('xterm')
+    authorizationMatrix inheritanceStrategy: inheritingGlobal(), 
+      permissions: [
+        'hudson.model.Item.Build:BFE*bfe_dev_team', 
+        'hudson.model.Item.Cancel:BFE*bfe_dev_team',
+        'hudson.model.Item.Read:BFE*bfe_dev_team', 
+        'hudson.model.Item.Read:BFE*bfe_support_team',
+        'hudson.model.Item.Read:BFE*bfe_viewers'
+        ] 
+    }
+  environment {
+    GITHUB_ACCESS = credentials ('github_npa_pat')
+    SONAR_ACCESS = credentials ('sonar_npa_pat')
+    COVERITY_ACCESS = credentials ('coverity_npa_pat')
+    HOME = "." 
+  } //env 
+  
+  parameters{
+    string(name: 'APP_REPO', defaultValue: '', description: 'which repo should I scan')    
+  } // parameters 
+  
+  stages{
+    stage('Build Info Set'){
+      steps{
+        script{
+          def triggeredByUser =  "${currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause).getUserName()}"
+          currentBuild.displayName = "${BUILD_DISPLAY_NAME} - ${APP_REPO} "
+        } //script
+      } // steps
+    } //stage - Build Info Set
+  
+    stage('Coverity_Java_Scan '){
+      when {
+        not { 
+          expression { params.APP_REPO ==~ /(gebge-ui|gebfe-uscan-engine|gebfe-uaa)/ } 
+        }
+      }
+      agent {
+        docker { // maven or Node based on the APP_NAME should be defined in here itself
+          image 'hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-all/maven:3.5'
+          reuseNode true
+          label 'swarm_worker'
+          args  '-v /tmp:/tmp -v /mnt/efs/coverity:/mnt/efs/coverity --network docker-gateway'
+          registryUrl 'https://hc-us-east-aws-artifactory.cloud.health.ge.com'
+          registryCredentialsId 'artifactory_npa_pat'
+        }
+      }
+      
+      stages {
+        stage('code_checkout'){
+          steps{
+            dir("${APP_REPO}"){
+              git branch: "dev", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/${APP_REPO}.git"
+              }
+            } //steps
+        } // code_checkout stage
+
+        stage('cov-build'){
+          steps{
+            sh '''
+            #!/bin/bash
+            export PATH=$PATH:/mnt/efs/coverity/bin:/mnt/efs/devops-stack          
+            cov-build --dir cov_${APP_REPO} mvn clean install -s gitflow_av/settings.xml -f ${APP_REPO}/pom.xml -Dmaven.repo.local=repository
+            '''
+          } //steps
+        } //stage
+  
+        stage('cov-analyze'){
+          steps{
+            sh '''
+            export PATH=$PATH:/mnt/efs/coverity/bin:/mnt/efs/devops-stack
+            cov-analyze --allow-unmerged-emits --dir cov_${APP_REPO}  -webapp-security --trust-network --trust-servlet --security --enable-fb --skip-webapp-sanity-check
+            '''
+
+            } //steps
+        } //stage
+
+        stage('cov-commit-defects'){
+          steps{
+            sh '''
+            export PATH=$PATH:/mnt/efs/coverity/bin:/mnt/efs/devops-stack
+            cov-commit-defects  --dir cov_${APP_REPO} --host coverity.cloud.health.ge.com --port 8080 --stream gehc-billing-finance-engine-dev-java --user ${COVERITY_ACCESS_USR} --password ${COVERITY_ACCESS_PSW}
+            '''
+
+            } //steps
+          } //stage
+        } // stages
+    } //stage for java 
+    
+    stage('Coverity_JavaScript_Scan '){
+      when {
+        expression { params.APP_REPO ==~ /(gebge-ui|gebfe-uscan-engine)/ } 
+      }
+      agent {
+        docker { // maven or Node based on the APP_NAME should be defined in here itself
+          image 'hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-all/node:latest'
+          reuseNode true
+          label 'swarm_worker'
+          args  '-v /tmp:/tmp -v /mnt/efs/coverity:/mnt/efs/coverity --network docker-gateway'
+          registryUrl 'https://hc-us-east-aws-artifactory.cloud.health.ge.com'
+          registryCredentialsId 'artifactory_npa_pat'
+        }
+      }
+      
+      stages {
+        stage('code_checkout'){
+          steps{
+            dir("${APP_REPO}"){
+              git branch: "dev", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/${APP_REPO}.git"
+              }
+            } //steps
+        } // code_checkout stage
+
+        stage('cov-build'){
+          steps{
+            sh '''
+            #!/bin/bash
+            export PATH=$PATH:/mnt/efs/coverity/bin:/mnt/efs/devops-stack
+            jq --help
+            
+            rm -rf cov_${APP_REPO}
+            
+            cov-build --dir cov_${APP_REPO} mvn clean install -s settings.xml -f ${APP_REPO}/pom.xml -Dmaven.repo.local=repository
+            '''
+          } //steps
+        } //stage
+  
+        stage('cov-analyze'){
+          steps{
+            sh '''
+            export PATH=$PATH:/mnt/efs/coverity/bin:/mnt/efs/devops-stack
+            cov-analyze --dir cov_${APP_REPO} -webapp-security --trust-network --trust-servlet --security --enable-fb --skip-webapp-sanity-check
+            '''
+
+            } //steps
+        } //stage
+
+        stage('cov-commit-defects'){
+          steps{
+            sh '''
+            export PATH=$PATH:/mnt/efs/coverity/bin:/mnt/efs/devops-stack
+            cov-commit-defects --dir cov_${APP_REPO} --host coverity.cloud.health.ge.com --port 8080 --stream gehc-billing-finance-engine-dev-javascript --user ${COVERITY_ACCESS_USR} --password ${COVERITY_ACCESS_PSW}
+            '''
+
+            } //steps
+          } //stage
+        } // stages
+    } //stage for Java Script
+  } //stages  
+  post{
+	always { 
+            echo 'I will always say Hello again!'
+            cleanWs()
+        }
+} //post
+} // pipeline
