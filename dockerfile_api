@@ -1,0 +1,25 @@
+FROM hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-all/openjdk:8-jre-alpine
+ENV PORT 9093
+ENV CLASSPATH /opt/lib
+ENV spring.profiles.active dev
+ENV spring.datasource.url jdbc:postgresql://mazonaws.com:5432/postgres
+ENV spring.datasource.username b
+ENV spring.datasource.password bf
+EXPOSE 9093
+# copy pom.xml and wildcards to avoid this command failing if there's no target/lib directory
+COPY pom.xml target/lib* /opt/lib/
+
+# NOTE we assume there's only 1 jar in the target dir
+# but at least this means we don't have to guess the name
+# we could do with a better way to know the name - or to always create an app.jar or something
+COPY target/*.jar /opt/app.jar
+WORKDIR /opt
+# adding newrelic
+RUN apk add curl
+RUN mkdir /opt/newrelic
+RUN curl -O "http://download.newrelic.com/newrelic/java-agent/newrelic-agent/current/newrelic-java.zip"
+RUN unzip newrelic-java.zip -d /opt
+# Generate & add certificates in jre security
+# This is a temporary work around.
+# Later all the certificates should be added in container spin up time.
+CMD ["java", "-XX:+UnlockExperimentalVMOptions", "-XX:+UseCGroupMemoryLimitForHeap", "-javaagent:/opt/newrelic/newrelic.jar", "-Dnewrelic.config.license_key=4d9797b3e9", "-jar", "app.jar"]
