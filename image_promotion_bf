@@ -1,0 +1,92 @@
+#!groovy
+def PROJECT_VERSION ='0.0.0'
+def ARTIFACT_NAME =''
+def SERVICE_NAME=''
+def ENVIRONMENT = ""
+
+pipeline
+{
+    agent 
+    {
+        label 'swarm_worker'
+    }
+    options 
+    { 
+        office365ConnectorWebhooks([[name: 'nprd_bfe_jenkins', notifyFailure: true, notifySuccess: true, startNotification: true, url: 'https://outlook.office.com/webhook/718fa5e8-4c6b-4872-94c4-99445c122eef@15ccb6d1-d335-4996-b6f9-7b6925f08121/JenkinsCI/a1d7753c2a2e41b89eaf15c117858c78/f224158a-2841-44c5-a8d2-de7c9f0c9bd2']])
+        timestamps ()
+        disableConcurrentBuilds()
+        ansiColor('xterm')
+        authorizationMatrix inheritanceStrategy: inheritingGlobal(), 
+        permissions: [
+        'hudson.model.Item.Build:BFE*bfe_dev_team', 
+        'hudson.model.Item.Cancel:BFE*bfe_dev_team', 
+        'hudson.model.Item.Read:BFE*bfe_dev_team', 
+        'hudson.model.Item.Read:BFE*bfe_support_team'
+        ] 
+    }
+    environment 
+    {
+        GITHUB_ACCESS = credentials ('github_npa_pat')
+        GEHC_ARTIFACTORY = credentials ('artifactory_npa_pat')
+        SONAR_ACCESS = credentials ('sonar_npa_pat')
+        COVERITY_ACCESS = credentials ('coverity_npa_pat')
+        COVERITY_URL = "http://coverity.cloud.health.ge.com"
+        DOCKER_REGISTRY = "hc-us-east-aws-artifactory.cloud.health.ge.com"
+        DOCKER_REPO ="docker-bfe-preprod"
+        PROD_DOCKER_REPO="docker-bfe-prod"
+        //REPO_NAME="gebfe-finance-view"
+        HOME = "." 
+        
+    }
+  
+    
+  
+   stages
+    {
+               stage('code_checkout_verify')
+                { 
+		
+                    steps
+                    {
+                        
+                            git branch: "test", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/gebfe-docker-stack.git"
+			    
+                        
+                    } //steps
+                } // stage
+
+               stage("Select stage version file") {
+                  steps {
+                      sh '''
+		      #!/bin/bash
+		      export $(cat gebfe-smax-stage-version.env)
+		      '''
+
+                      
+               }
+         }
+	    
+	stage('docker_publish')
+        {
+            steps 
+            {
+                
+                sh '''
+                        #!/bin/bash
+                        export $(cat gebfe-smax-stage-version.env)
+                    docker --config ~/.${DOCKER_REPO} login --username ${GEHC_ARTIFACTORY_USR} --password ${GEHC_ARTIFACTORY_PSW} ${DOCKER_REGISTRY}
+		    export $(cat gebfe-smax-stage-version.env)
+                    docker image pull ${DOCKER_REGISTRY}/${DOCKER_REPO}/${REPO_NAME}:${NONPROD_BASE_IMAGE_AND_VERSION}
+                    docker tag ${DOCKER_REGISTRY}/${DOCKER_REPO}/${REPO_NAME}:${NONPROD_BASE_IMAGE_AND_VERSION} ${DOCKER_REGISTRY}/${PROD_DOCKER_REPO}/${REPO_NAME}:${PROD_BASE_IMAGE_AND_VERSION}
+                    docker --config ~/.${DOCKER_REPO} push ${DOCKER_REGISTRY}/${PROD_DOCKER_REPO}/${REPO_NAME}:${PROD_BASE_IMAGE_AND_VERSION}
+             
+                        
+            
+                    '''
+            } //steps       
+        } // stage('docker_publish') 
+      }//stages 
+      ////docker --config ~/.${DOCKER_REPO} push ${DOCKER_REGISTRY}/${PROD_DOCKER_REPO}/${PROD_BASE_IMAGE_AND_VERSION}
+
+    
+}// pipeline
