@@ -1,0 +1,3 @@
+This stores pipeline configuration as a code.
+
+To make a pipeline just copy the content of any groovy file and paste it into the new groovy and name it according the pipeline.Edit the parameters github_url and pipeline_name and commit.Run the seedjob in jenkins, pipeline will automatically spin up.
