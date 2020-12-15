@@ -1,0 +1,105 @@
+version: "3.7"
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.6.0
+    volumes:
+      - /mnt/efs/elasticstack/elasticsearch/data:/usr/share/elasticsearch/data
+      - /mnt/efs/elasticstack/elasticsearch/logs:/usr/share/elasticsearch/logs
+#      - /mnt/efs/beta/elasticstack/elasticsearch/config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+    networks:
+      - belk_beta_network
+    environment:
+      ES_JAVA_OPTS: -Xms4g -Xmx4g
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: on-failure
+      endpoint_mode: vip
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.6.0
+    volumes:
+      - /mnt/efs/elasticstack/logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    networks:
+      - belk_beta_network
+    environment:
+      LS_JAVA_OPTS: -Xms1g -Xmx1g
+    deploy:
+      mode: replicated
+      replicas: 0
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: on-failure
+      endpoint_mode: vip
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.6.0
+    environment:
+      SERVER_BASEPATH: /kibana
+    volumes:
+      - /mnt/efs/elasticstack/kibana/config/kibana.docker.yml:/usr/share/kibana/config/kibana.yml:ro
+    networks:
+     - docker-gateway
+     - belk_beta_network
+    deploy:
+      mode: replicated
+      replicas: 1
+      labels:
+        - traefik.frontend.passHostHeader=true
+        - traefik.port=5601
+        - traefik.path.frontend.rule=PathPrefixStrip:/kibana;
+        - traefik.backend.healthcheck.interval=30s
+        - traefik.backend.healthcheck.timeout=5s
+        - traefik.docker.network=docker-gateway
+
+      placement:
+        constraints: [node.role == worker]
+      restart_policy:
+        condition: on-failure
+      endpoint_mode: vip
+
+
+
+  metricbeat:
+    image: docker.elastic.co/beats/metricbeat:7.6.0
+    user: root
+    networks:
+      - belk_beta_network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /mnt/efs/elasticstack/beats/metricbeat/metricbeat.docker.yml:/usr/share/metricbeat/metricbeat.yml:ro
+
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+      endpoint_mode: vip
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:7.6.0
+    user: root
+    networks:
+      - belk_beta_network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /mnt/efs/elasticstack/beats/filebeat/filebeat.docker.yml:/usr/share/filebeat/filebeat.yml:ro
+
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+      endpoint_mode: vip
+
+networks:
+  belk_beta_network:
+    driver: overlay
+  docker-gateway:
+    external: true
