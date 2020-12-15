@@ -1,0 +1,69 @@
+//Enter the projectName below in the format of {ENVIRONMENT}-{REGION}-{PROJECTNAME} and GITHUB URL in variables section
+pipelineJob('QA-EU-gehc_mobile_m1_backend_icenter') {
+    definition {
+        cps {
+            script(
+'''#!/groovy
+@Library('cdxPipelineLibrary@master') _
+
+
+println("************************************Execution Starts****************************************")
+def GithubUrl="https://github.build.ge.com/GSIT/gehc.mobile.m1.backend.icenter.git"
+println("**********************************************************************************************************************")
+
+pipeline {
+    agent {
+        label 'master'
+    }
+    tools {maven "maven"} 
+   
+ stages {
+  
+  
+  stage('Git Checkout'){
+      steps{
+          script{
+              git branch: 'develop', credentialsId: 'CDX_GIT_USER', url: GithubUrl
+              env.BRANCH_NAME='qa'
+          }
+      }
+  }
+  
+  
+  stage('Setting Environment variable'){
+      steps{
+          script{
+              setEnvMaven()             
+                 }
+      }
+  }
+  
+  
+      stage('Maven Build'){
+      steps{
+          script{
+              buildProjectMaven()
+              coverityCodeScan()
+              imageBuildAndPush()
+          }
+      }
+  }
+  
+  
+  stage('Kubernetes Deployment'){
+      steps{
+          script{
+             kubernetesDeployment()
+      }
+  }
+
+      
+}
+    }
+        }
+'''
+)
+            sandbox()
+        }
+    }
+}
