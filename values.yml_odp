@@ -1,0 +1,248 @@
+# Default values for odp-daas-indexer-chart.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  # Change by repo:
+  repository: 541574621075.dkr.ecr.us-east-1.amazonaws.com/daas/odp-daas-template
+  tag: latest
+  pullPolicy: Always
+  
+statusPath: /actuator/health
+
+command: ["java"]
+args: ["-XX:+UnlockExperimentalVMOptions", "-XX:+UseCGroupMemoryLimitForHeap", "-javaagent:/opt/newrelic/newrelic.jar", "-jar", "app.jar"]
+
+
+revisionHistoryLimit: 2
+
+nameOverride: ""
+fullnameOverride: ""
+
+env:
+  - name: appname
+    value: odp-daas-template # changes per application
+#  - name: rs.datasource.hikari.prepStmtCacheSize
+#    valueFrom:
+#      configMapKeyRef:
+#        name: indexer-config
+#        key: redshift.prepStmtCacheSize
+#  - name: rs.datasource.hikari.prepStmtCacheSqlLimit
+#    valueFrom:
+#      configMapKeyRef:
+#        name: indexer-config
+#        key: redshift.prepStmtCacheSqlLimit
+#  - name: rs.datasource.hikari.maximumPoolSize
+#    valueFrom:
+#      configMapKeyRef:
+#        name: indexer-config
+#        key: redshift.maximumPoolSize
+#  - name: rs.datasource.hikari.cachePrepStmts
+#    valueFrom:
+#      configMapKeyRef:
+#        name: indexer-config
+#        key: redshift.cachePrepStmts
+#  - name: rs.datasource.hikari.minimumIdle
+#    valueFrom:
+#      configMapKeyRef:
+#        name: indexer-config
+#        key: redshift.minimumIdle
+#  - name: rs.datasource.hikari.connectionTimeout
+#    valueFrom:
+#      configMapKeyRef:
+#        name: indexer-config
+#        key: redshift.connectionTimeout
+#  - name: rs.datasource.url
+#    valueFrom:
+#      configMapKeyRef:
+#        name: indexer-config
+#        key: redshift.url
+#  - name: rs.datasource.username
+#    valueFrom:
+#      configMapKeyRef:
+#        name: indexer-config
+#        key: redshift.username
+#  - name: rs.datasource.driver-class-name
+#    valueFrom:
+#      configMapKeyRef:
+#        name: indexer-config
+#        key: redshift.driver-class-name
+#  - name: rs.datasource.hikari.connectionTestQuery
+#    valueFrom:
+#      configMapKeyRef:
+#        name: indexer-config
+#        key: redshift.hikari.connectionTestQuery
+#  - name: rs.datasource.hikari.pool-name
+#    valueFrom:
+#      configMapKeyRef:
+#        name: indexer-config
+#        key: redshift.hikari.pool-name
+#  - name: rs.datasource.password
+#    valueFrom:
+#      secretKeyRef:
+#        name: odp-daas-config
+#        key: redshift.password
+#
+  - name: odp.daas.api.username
+    valueFrom:
+      configMapKeyRef:
+        name: odp-daas-config
+        key: api.sagemaker.username
+  - name: odp.daas.api.password
+    valueFrom:
+      secretKeyRef:
+        name: odp-daas-config
+        key: api.sagemaker.password
+#  - name: es.profile
+#    valueFrom:
+#      configMapKeyRef:
+#        name: odp-daas-config
+#        key: es.profile
+#  - name: es.service.name.aws
+#    valueFrom:
+#      configMapKeyRef:
+#        name: odp-daas-config
+#        key: es.name
+#  - name: es.service.region.aws
+#    valueFrom:
+#      configMapKeyRef:
+#        name: odp-daas-config
+#        key: es.region
+#  - name: es.service.endpoint.aws
+#    valueFrom:
+#      configMapKeyRef:
+#        name: odp-daas-config
+#        key: es.url
+#  - name: gp.datasource.status
+#    valueFrom:
+#      configMapKeyRef:
+#        name: odp-daas-config
+#        key: gp.status
+#  - name: gp.datasource.url
+#    valueFrom:
+#      configMapKeyRef:
+#        name: odp-daas-config
+#        key: gp.url
+#  - name: gp.datasource.username
+#    valueFrom:
+#      configMapKeyRef:
+#        name: odp-daas-config
+#        key: gp.username
+  - name: aws.s3.bucketname
+    valueFrom:
+      configMapKeyRef:
+        name: odp-daas-config
+        key: s3.bucketname
+#  - name: gp.datasource.password
+#    valueFrom:
+#      secretKeyRef:
+#        name: odp-daas-config
+#        key: gp.password
+#  - name: etl.datasource.url
+#    valueFrom:
+#      configMapKeyRef:
+#        name: odp-daas-config
+#        key: redshift.url
+#  - name: etl.datasource.username
+#    valueFrom:
+#      configMapKeyRef:
+#        name: odp-daas-config
+#        key: redshift.username
+#  - name: etl.datasource.password
+#    valueFrom:
+#      secretKeyRef:
+#        name: odp-daas-config
+#        key: redshift.password
+  - name: aws.dynamodb.profile
+    valueFrom:
+      configMapKeyRef:
+        name: odp-daas-config
+        key: dynamodb.profile
+  - name: NEW_RELIC_LICENSE_KEY
+    valueFrom:
+      secretKeyRef:
+        name: odp-daas-config
+        key: newrelic.licensekey
+  - name: NEW_RELIC_LOG_FILE_NAME
+    valueFrom:
+      configMapKeyRef:
+        name: odp-daas-config
+        key: newrelic.logfilename
+  - name: NEW_RELIC_DISTRIBUTED_TRACING_ENABLED
+    valueFrom:
+      configMapKeyRef:
+        name: odp-daas-config
+        key: newrelic.distributed-tracing-enabled
+  - name: NEW_RELIC_ATTRIBUTES_INCLUDE
+    valueFrom:
+      configMapKeyRef:
+        name: odp-daas-config
+        key: newrelic.attributes-include
+  - name: namespace
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.namespace     
+  - name: NEW_RELIC_APP_NAME
+    value: $(appname)-$(namespace)
+#  - name: aws.sqs.service.is-active
+#    valueFrom:
+#      configMapKeyRef:
+#        name: odp-daas-config
+#        key: sqs.service.is-active
+#  - name: aws.sqs.req.queue
+#    valueFrom:
+#      configMapKeyRef:
+#        name: odp-daas-config
+#        key: sqs.req.queue
+#  - name: aws.sqs.res.queue
+#    valueFrom:
+#      configMapKeyRef:
+#        name: odp-daas-config
+#        key: sqs.res.queue
+#  - name: aws.sqs.region
+#    valueFrom:
+#      configMapKeyRef:
+#        name: odp-daas-config
+#        key: sqs.region
+#  - name: job.concurrency.limit
+#    value: "4"
+
+service:
+  type: ClusterIP
+  port: 80
+  # Change by repo: (must match port exposed by Dockerfile, must match port which app listens on)
+  targetPort: 8090
+
+ingress:
+  enabled: true
+  annotations: 
+    kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  path: /
+  hosts:
+    # Change by repo: (overwritten by Jenkins)
+    - dev-indexer.odp-daas.cloud.health.ge.com
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #  cpu: 100m
+  #  memory: 128Mi
+  # requests:
+  #  cpu: 100m
+  #  memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
