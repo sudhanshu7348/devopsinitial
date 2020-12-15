@@ -1,0 +1,8 @@
+apiVersion: v1
+appVersion: "v1.18.3"
+description: A Helm chart for Kubernetes
+
+# Change by repo:
+name: odp-daas-template
+
+version: 0.1.0
