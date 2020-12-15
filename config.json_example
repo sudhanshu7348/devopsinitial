@@ -1,0 +1,9 @@
+{
+"coverityParams" : {
+	"coverityServer": "http://coverity.cloud.health.ge.com:8080",
+	"projectName": "dstdigitalexpert",
+	"streamName": "${PROJECT_NAME}",
+	"viewName": "Copy of Unsaved view"
+                        }
+}
+}
