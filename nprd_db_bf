@@ -1,0 +1,146 @@
+#!groovy
+
+pipeline{
+  agent { label 'swarm_manager' }
+  
+  options { 
+    office365ConnectorWebhooks([[name: 'nprd_bfe_jenkins', notifyFailure: true, notifySuccess: true, startNotification: true, url: 'https://outlook.office.com/webhook/718fa5e8-4c6b-4872-94c4-99445c122eef@15ccb6d1-d335-4996-b6f9-7b6925f08121/JenkinsCI/a1d7753c2a2e41b89eaf15c117858c78/f224158a-2841-44c5-a8d2-de7c9f0c9bd2']])
+    timestamps ()
+    disableConcurrentBuilds()
+    ansiColor('xterm')
+    authorizationMatrix inheritanceStrategy: inheritingGlobal(), 
+      permissions: [
+        'hudson.model.Item.Build:BFE*bfe_dev_team', 
+        'hudson.model.Item.Cancel:BFE*bfe_dev_team',
+        'hudson.model.Item.Read:BFE*bfe_dev_team', 
+        'hudson.model.Item.Read:BFE*bfe_support_team',
+        'hudson.model.Item.Read:BFE*bfe_viewers'
+        ] 
+  
+  }
+  
+  environment {
+    GITHUB_ACCESS = credentials ('github_npa_pat')
+    PG_SMAX_DB_SERVER = 'bfe-smax-prod.c6zl0lpmdpsn.us-east-1.rds.amazonaws.com'
+    PG_USCAN_DB_SERVER = 'bfe-uscan-prod.c6zl0lpmdpsn.us-east-1.rds.amazonaws.com'
+    SMAX_DB_CRED = credentials ('PG_SMAX_DB')
+    USCAN_DB_CRED = credentials ('PG_USCAN_DB')	  
+	  
+  }
+  
+  parameters{
+    // APPNAME
+    choice (name: 'DB_REPO', choices: ['gebfe-smax-db','ngebfe-uscan-db'], description: 'Aapplication Dist to be deployed /updated /refreshed ')
+    string (name: 'FEATURE_GEINC_ID', defaultValue: 'GEINC12345 or US12345_F123', description: 'provide either FEATURE_ID or INCIDENT_ID')
+    choice (name: 'DB_ENV', choices:['bfe-smax-dev', 'bfe-smax-tst', 'bfe-smax-stg' 'bfe-uscan-dev', 'bfe-uscan-tst', 'bfe-uscan-stg', description:'Select the Database on which one needs to apply the feature or incident DB script' ]
+    }
+  
+  stages{
+    stage('Build Info Set'){
+		steps{
+			script{
+				def triggeredByUser =  "${currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause).getUserName()}"
+				currentBuild.displayName = "${BUILD_DISPLAY_NAME} - ${DB_REPO} - ${FEATURE_GEINC_ID} - ${triggeredByUser}"
+				} 
+			}
+		} //stage - Build Info Set
+    
+    stage('DB_REPO_CHECKOUT'){
+      steps{
+        dir("${DB_REPO}"){
+		git branch: "master", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/${DB_REPO}.git"
+        }
+	dir("gebfe-docker-stack"){
+		git branch: "master", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/gebfe-docker-stack.git"
+        }
+      } //steps 
+    } // stage 
+    
+    stage('DB_EXECUTE_GEINC_ID_SQL'){
+      steps {
+        sh """
+          #!/bin/bash
+          echo "${DB_REPO}"
+          cd ${DB_REPO}/${FEATURE_GEINC_ID}/
+          pwd
+          ls 
+          /usr/bin/psql --version
+	  
+          case ${DB_ENV} in
+            bfe-smax-dev)
+	    # for each line in sequence.txt file  run the psql command 
+	    
+	    export PGPASSWORD=${SMAX_DB_CRED_PSW}
+	    /usr/bin/psql -h ${DB_ENV}.cquawrraukfl.us-east-1.rds.amazonaws.com -U ${_CRED_USR} -d postgres -f ${GEINC_ID}.sql -L ${WORKSPACE}/${DB_REPO}_${GEINC_ID}_slog.txt  -o ${WORKSPACE}/${DB_REPO}_${GEINC_ID}_out.txt        
+          
+	    ;;
+	    
+	    bfe-smax-tst)
+	    # for each line in sequence.txt file  run the psql command 
+	    export PGPASSWORD=${SMAX_DB_CRED_PSW}
+	    /usr/bin/psql -h ${PG_SMAX_DB_SERVER} -U ${SMAX_DB_CRED_USR} -d postgres -f ${GEINC_ID}.sql -L ${WORKSPACE}/${DB_REPO}_${GEINC_ID}_slog.txt  -o ${WORKSPACE}/${DB_REPO}_${GEINC_ID}_out.txt        
+          
+	    ;;
+	    
+	    bfe-smax-stg)
+	    # for each line in sequence.txt file  run the psql command 
+	    export PGPASSWORD=${SMAX_DB_CRED_PSW}
+	    /usr/bin/psql -h ${PG_SMAX_DB_SERVER} -U ${SMAX_DB_CRED_USR} -d postgres -f ${GEINC_ID}.sql -L ${WORKSPACE}/${DB_REPO}_${GEINC_ID}_slog.txt  -o ${WORKSPACE}/${DB_REPO}_${GEINC_ID}_out.txt        
+          
+	    ;;
+	    
+	    bfe-uscan-dev)
+	    # for each line in sequence.txt file  run the psql command 
+	    export PGPASSWORD=${SMAX_DB_CRED_PSW}
+	    /usr/bin/psql -h ${PG_SMAX_DB_SERVER} -U ${SMAX_DB_CRED_USR} -d postgres -f ${GEINC_ID}.sql -L ${WORKSPACE}/${DB_REPO}_${GEINC_ID}_slog.txt  -o ${WORKSPACE}/${DB_REPO}_${GEINC_ID}_out.txt        
+          
+	    ;;
+	    
+	    bfe-uscan-tst)
+	    # for each line in sequence.txt file  run the psql command 
+	    export PGPASSWORD=${SMAX_DB_CRED_PSW}
+	    /usr/bin/psql -h ${PG_SMAX_DB_SERVER} -U ${SMAX_DB_CRED_USR} -d postgres -f ${GEINC_ID}.sql -L ${WORKSPACE}/${DB_REPO}_${GEINC_ID}_slog.txt  -o ${WORKSPACE}/${DB_REPO}_${GEINC_ID}_out.txt        
+          
+	    ;;
+	    bfe-uscan-stg)
+	    # for each line in sequence.txt file  run the psql command 
+	    export PGPASSWORD=${SMAX_DB_CRED_PSW}
+	    /usr/bin/psql -h ${PG_SMAX_DB_SERVER} -U ${SMAX_DB_CRED_USR} -d postgres -f ${GEINC_ID}.sql -L ${WORKSPACE}/${DB_REPO}_${GEINC_ID}_slog.txt  -o ${WORKSPACE}/${DB_REPO}_${GEINC_ID}_out.txt        
+	    
+	    ;;
+	    
+          
+
+         
+          esac 
+	  
+       """
+
+      } //steps 
+      
+      
+    } // stage
+    
+    /* stage('prod_sanity_check'){
+      steps {
+        sh '''
+          #!/bin/bash
+          # docker stack ps ${APP_NAME}_prod       
+          # 
+        '''
+        cleanWs()
+      } //steps 
+      
+      
+    } // stage 
+    */
+	  
+  } //stages
+  post {
+            always {
+              archiveArtifacts artifacts: "${DB_REPO}_${GEINC_ID}_*.txt", fingerprint: true
+        	    
+		    deleteDir()
+            }
+        } 
+} // pipeline
