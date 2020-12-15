@@ -1,0 +1,207 @@
+#!groovy
+def PROJECT_VERSION ='0.0.0'
+def ARTIFACT_NAME =''
+def NODE_HOST = ''
+def SERVICE_NAME=''
+pipeline{
+  agent {
+    label 'swarm_worker'
+      }
+  
+  options { 
+    office365ConnectorWebhooks([[name: 'nprd_bfe_jenkins', notifyFailure: true, notifySuccess: true, startNotification: true, url: 'https://outlook.office.com/webhook/718fa5e8-4c6b-4872-94c4-99445c122eef@15ccb6d1-d335-4996-b6f9-7b6925f08121/JenkinsCI/a1d7753c2a2e41b89eaf15c117858c78/f224158a-2841-44c5-a8d2-de7c9f0c9bd2']])
+    timestamps ()
+    disableConcurrentBuilds()
+    ansiColor('xterm')
+    authorizationMatrix inheritanceStrategy: inheritingGlobal(), 
+      permissions: [
+        'hudson.model.Item.Build:BFE*bfe_dev_team', 
+        'hudson.model.Item.Cancel:BFE*bfe_dev_team', 
+	'hudson.model.Item.Read:BFE*bfe_dev_team', 
+        'hudson.model.Item.Read:BFE*bfe_support_team'
+        ] 
+  
+  
+  }
+  
+  environment {
+    CACHING_REPO_URL = 'https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/npm-bfe-all'
+    GITHUB_ACCESS = credentials ('github_npa_pat')
+    GEHC_ARTIFACTORY = credentials ('artifactory_npa_pat')
+    DOCKER_REGISTRY = "hc-us-east-aws-artifactory.cloud.health.ge.com"
+    DOCKER_REPO ="docker-bfe-preprod"
+    HOME = "." 
+    
+  }
+  
+  parameters{
+    string(name: 'APP_BRANCH', defaultValue: 'dev', description: 'which Branch should I build')
+    choice(name: 'DEV_PROMOTE', choices:'dev-rebuild\nverify\ntrue', description: 'Merge with develop and deploy to dev environment')
+  }
+  
+  stages{
+    
+    stage('Build Info Set'){
+      steps{
+        script{
+          def triggeredByUser =  "${currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause).getUserName()}"
+		currentBuild.displayName = "${BUILD_DISPLAY_NAME} - ${APP_BRANCH} - ${DEV_PROMOTE}- ${triggeredByUser}"
+        } //script
+      } // steps
+    } //stage - Build Info Set
+    stage('Pull_Request_Status') {
+      when {  expression { params.DEV_PROMOTE ==~ /(true)/ }  }
+      steps{
+        sh """
+          export PATH=$PATH:/mnt/efs/devops-stack/
+          pull_request=\$(curl -H 'Content-Type: application/json' -u ${GITHUB_ACCESS_USR}:${GITHUB_ACCESS_PSW} https://github.build.ge.com/api/v3/repos/BFE/${JOB_BASE_NAME}/pulls?state=open | jq '.[] | select(.head.ref == "${APP_BRANCH}" ) | .url' | cut -d'"' -f2)
+          echo \${pull_request}
+	  
+	  pull_request_status=\$(curl -H 'Content-Type: application/json' -u ${GITHUB_ACCESS_USR}:${GITHUB_ACCESS_PSW} \${pull_request}/reviews | jq '.[] | select( .state == "APPROVED") | .state ')
+          echo \${pull_request_status}
+          case \${pull_request_status} in 
+            *APPROVED* )
+            echo " continue with promotion activity"
+            ;;
+            * )
+            echo "Pull Request is not yet Approved  Aborting the Promote job"
+              exit 1
+            ;;
+          esac
+        """
+      } //steps
+    } //stage
+	   
+    stage('Build and Test'){
+      agent {
+        docker {
+          image 'hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-all/node:latest'
+          reuseNode true
+          args  '-v /tmp:/tmp '
+		// --network docker-gateway
+          registryUrl 'https://hc-us-east-aws-artifactory.cloud.health.ge.com'
+          registryCredentialsId 'artifactory_npa_pat'
+          /* label 'swarm_worker' */
+        }
+      }
+      stages {
+        stage('code_checkout'){
+          steps{
+            dir("${APP_BRANCH}"){
+              git branch: "${APP_BRANCH}", credentialsId: 'github_npa_pat', url: "https://github.build.ge.com/BFE/${REPO_NAME}.git"
+              
+              }
+            } //steps
+        } // stage
+
+        stage('merge check and update version'){
+          steps{
+            sh'''
+              #!/bin/bash
+              cd ${APP_BRANCH}
+              currentVersion=`node -pe "require('./package.json').version"`
+              echo " current version : $currentVersion "
+              major=`echo $currentVersion | cut -d "." -f1`
+              minor=`echo $currentVersion | cut -d "." -f2`
+              micro=`echo $currentVersion | cut -d "." -f3`
+              
+              echo -n "https://${GITHUB_ACCESS}@github.build.ge.com/BFE/${JOB_BASE_NAME}.git" > .git-credentials 
+              git config user.email "Service.BFE_GIT_SERVICE_ACCNT@ge.com" # Functional Account email to be updated
+              git config --global user.name "BFE_GIT_SERVICE_ACCNT, Service" # Functional Account user to be updated
+              git config --global credential.helper "store --file .git-credentials"
+              
+              case "${APP_BRANCH}" in 
+                *feature_*)
+                  echo " Branch is Major Feature "
+		  git merge --no-commit  --no-ff -v origin/${APP_BRANCH}
+                  npm version major --no-git-tag-version --force
+		  git add package.json
+                ;;
+                *enhancement_*)
+                  echo " Branch is Minor Enhancement "
+		  git merge --no-commit  --no-ff -v origin/${APP_BRANCH}
+                  npm version minor --no-git-tag-version --force
+		  git add package.json
+                ;;
+                
+                dev)
+                  echo " Branch is dev branch no need to merge and update the version  "
+                  
+                ;;
+              esac
+
+              git log --name-only -3
+              '''
+            dir ("${APP_BRANCH}") {
+                script {
+                  PROJECT_VERSION = sh(script:'''node -pe "require('./package.json').version"''', returnStdout:true).trim() 
+                  ARTIFACT_NAME = sh(script:'''node -pe "require('./package.json').name"''', returnStdout:true).trim()
+                  /* WORKDIR = pwd() */
+                  
+                }
+                echo (" Artifact Name = ${ARTIFACT_NAME} Project Version = ${PROJECT_VERSION}  NODE Name = ${NODE_HOST} "   )
+              }
+            } //steps
+        }// stage
+    
+        stage('topic build test and coverage'){
+          steps{
+            // withSonarQubeEnv('SONAR') {
+              sh '''
+                  #!/bin/bash
+                  cd ${APP_BRANCH}
+                  
+                  npm config set prefix ${WORKSPACE}/${APP_BRANCH}/node_modules
+                  export PATH=$PATH:${WORKSPACE}/${APP_BRANCH}/node_modules/.bin
+                  
+                  #npm config set registry ${CACHING_REPO_URL}
+                  #npm config set strict-ssl true
+                  npm install --verbose
+              '''
+              /*sh'''
+              #!/bin/bash
+              cd ${APP_BRANCH}
+              mvn  -s settings.xml -U -Dmaven.repo.local=${WORKSPACE}/${APP_BRANCH}/mvn_repository org.sonarsource.scanner.maven:sonar-maven-plugin:3.2:sonar -Dsonar.branch=${APP_BRANCH}'
+              '''
+              */
+           // } //sonar env
+          } // steps
+        } //stage 
+      } // stages 
+    } // stage ( build and Test ) 
+    stage('docker_publish'){
+      
+      steps {
+        sh  """
+            #!/bin/bash
+              cd ${APP_BRANCH}
+              docker --config ~/.${DOCKER_REPO} login --username ${GEHC_ARTIFACTORY_USR} --password ${GEHC_ARTIFACTORY_PSW} ${DOCKER_REGISTRY}
+              
+              case "${DEV_PROMOTE}" in 
+              
+              true)
+                docker build . -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:${PROJECT_VERSION}-${APP_BRANCH}
+                docker --config ~/.${DOCKER_REPO} push ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:${PROJECT_VERSION}-${APP_BRANCH}
+              ;;
+	    
+              verify)
+              docker build . -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:${APP_BRANCH}
+              docker --config ~/.${DOCKER_REPO} push ${DOCKER_REGISTRY}/${DOCKER_REPO}/${ARTIFACT_NAME}:${APP_BRANCH}
+              ;;
+              
+              esac
+              
+              
+            """
+      } //steps       
+    } // stage
+    
+
+  } //stages 
+  post { 
+        always { 
+            echo 'I will always say Hello again!'
+            cleanWs()
+        }
+    }
+} // pipeline
