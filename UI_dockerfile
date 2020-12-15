@@ -1,0 +1,18 @@
+FROM hc-us-east-aws-artifactory.cloud.health.ge.com/docker-bfe-all/node:10
+# FROM node:9
+EXPOSE 8080
+WORKDIR /usr/src/app
+COPY . .
+
+
+# Node import for CERT files
+# RUN apt-get update && apt-get install openssl
+# RUN openssl pkcs7 -print_certs -in /usr/src/app -out /usr/src/app/bfecertchain.pem -inform DER -outform PEM
+#CMD ["npm", "run", "build-react"]
+#ENV HTTP_PROXY "http://3.28.29.241:88"
+#ENV HTTPS_PROXY "http://3.28.29.241:88"
+ENV NODE_ENV "production"
+
+#RUN npm install
+RUN npm run build-app-dist
+CMD ["npm", "run", "runserver"]
