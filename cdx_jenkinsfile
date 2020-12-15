@@ -1,0 +1,94 @@
+Skip to content
+ Enterprise
+Search or jump to…
+
+Pull requests
+Issues
+Explore
+ 
+@212706776 
+GSIT
+/
+cdx-serviceshop-automation
+Private
+5
+0
+0
+ Code
+ Issues 0
+ Pull requests 0
+ Projects 0
+ Wiki
+ Insights
+ Settings
+cdx-serviceshop-automation/Jenkinsfile
+@502644776 502644776 Initial Commit
+fed572d on 28 Jun 2019
+58 lines (50 sloc)  850 Bytes
+  
+#!/groovy
+@Library('cdxPipelineLibrary@master') _
+
+
+pipeline {
+    agent any
+    stages {
+        	stage('Unit Testing') {
+            	  steps {
+                		script{
+                    			setEnvNode()
+            		    		unitTestingNode()        
+                      		}
+            		}
+        	}
+		/*stage('sonarqube Analysis'){
+		    steps{
+				script{
+					sonarScan()
+				}
+			}
+		}
+		stage('Quality Gate Check'){
+		    steps{
+				script{
+					qualityGateFailure()
+				}
+			}
+		}
+	   	 stage('Coverity Code Scan'){
+		    steps{
+				script{
+					coverityCodeScan()
+				}
+			}
+		}*/
+	     
+	    
+	 	stage('Docker Image Build And Artifactory Push'){
+		    steps{
+				script{
+					imageBuildAndPush()
+				}
+			}
+		}
+		stage('Kubernetes Deploymnet'){
+		    steps{
+				script{
+					kubernetesDeployment()
+				}
+			}
+		}
+		
+		
+		
+    }
+    
+}
+© 2020 GitHub, Inc.
+Help
+Support
+API
+Training
+Blog
+About
+GitHub Enterprise Server 2.21.12
