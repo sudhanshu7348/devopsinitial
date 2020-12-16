@@ -1,0 +1,151 @@
+pipeline {
+    agent  {
+         label 'master'
+    }
+
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '5'))
+        timeout(time: 10, unit: 'MINUTES')
+    }
+
+    parameters {
+        string(name: 'sha1', description: 'only for PullRequests', defaultValue: '')
+    }
+
+    stages {
+        stage ('Gradle') {
+            // common step for protected branches and PullRequests
+            steps {
+                // gradle build to create jar file
+                withCredentials([usernamePassword(
+                    credentialsId: 'abf7f837-82',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'TOKEN')])
+                {
+                    sh '''#!/bin/bash
+                    set -e
+                    env
+                    chmod +x gradlew
+                    ./gradlew clean build \\
+                        -Partifactory_resolverUser=${USER} \\
+                        -Partifactory_resolverPassword=${TOKEN}
+                    mv siebel-uscan-api-runtime/build/libs/siebel-uscan-api.jar .
+                    '''
+                }
+            }
+        }
+
+        stage ('Version') {
+            when {
+                // proteted branches only, not for PullRequests
+                expression {
+                    return env.GIT_BRANCH ==~ /origin.(develop|release|master)/
+                }
+                // Extend jar file's build-info.properties with job information and
+                // create new file with unique name.
+            }
+            steps {
+                sh '''#!/bin/bash
+                set -e
+                BRR=${GIT_BRANCH##*/}
+                mkdir recycling
+                cd recycling
+                unzip -q ../siebel-uscan-api.jar
+                echo "build.job=${JOB_BASE_NAME}" >> BOOT-INF/classes/META-INF/build-info.properties
+                echo "build.id=${BUILD_ID}" >> BOOT-INF/classes/META-INF/build-info.properties
+                echo "build.branch=${BRR}" >> BOOT-INF/classes/META-INF/build-info.properties
+                echo "build.commit=${GIT_COMMIT}" >> BOOT-INF/classes/META-INF/build-info.properties
+                zip -q -0 -r ../siebel-uscan-api.${BRR}.${BUILD_ID}.jar *
+                cd ..
+                rm -rf recycling
+                echo done
+                '''
+            }
+        }
+
+        stage ('Artifactory') {
+            when {
+                // proteted branches only, not for PullRequests
+                expression {
+                    return env.GIT_BRANCH ==~ /origin.(develop|release|master)/
+                }
+                // Use the version-extended filename, created in previous stage.
+            }
+            steps {
+                rtServer (
+                    id: 'Artifactory-1',
+                    url: "https://artifactory.b.com",
+                    credentialsId: 'abf7f837-8c8-d03f57aeba82'
+                )
+                rtUpload (
+                    serverId: 'Artifactory-1',
+                    spec: '''{
+                        "files": [{
+                            "pattern": "siebel-uscan-api.([a-z]+).([0-9]+).jar",
+                            "target": "OHJKB/com/ge/healthcar}/siebel-uscan-api.{1}.{2}.jar",
+                            "recursive": "false",
+                            "regexp": "true"
+                        }]
+                    }'''
+                )
+            }
+        }
+
+    }
+
+    post {
+        failure {
+            // Generate HTML Reports
+            script {
+                echo "${JOB_NAME} #${BUILD_ID} finished with ${currentBuild.currentResult}"
+                def spotbugsHtmlFiles
+                def testHtmlFiles
+                def HTMLFILES
+                dir ('.') {
+                    spotbugsHtmlFiles = findFiles glob: 'siebel-*/build/reports/spotbugs/main.html'
+                    testHtmlFiles = findFiles glob: 'siebel-*/build/reports/tests/test/index.html'
+                }
+                publishHTML([
+                    allowMissing: true,
+                    alwaysLinkToLastBuild: false,
+                    keepAll: true,
+                    reportDir: '.',
+                    reportFiles: spotbugsHtmlFiles.join(','),
+                    reportName: 'SpotBugs Reports'
+                ])
+                publishHTML([
+                    allowMissing: true,
+                    alwaysLinkToLastBuild: false,
+                    keepAll: true,
+                    reportDir: '.',
+                    reportFiles: testHtmlFiles.join(','),
+                    reportName: 'Test Reports'
+                ])
+                env.HTMLFILES = (spotbugsHtmlFiles + testHtmlFiles).join(',')
+            }
+            // notification email
+            emailext (
+                subject: "JENKINS: ${JOB_NAME} ${currentBuild.displayName} - ${currentBuild.currentResult}",
+                to: ", ",
+                attachLog: true,
+                attachmentsPattern: "${HTMLFILES}",
+                compressLog: false,
+                body: """
+Job name: ${JOB_NAME}
+Buid id: ${BUILD_ID}
+
+See attached HTML file(s) and
+check console ${JOB_DISPLAY_URL}/${BUILD_ID}/console
+
+SpotBugs ${BUILD_URL}/SpotBugs_20Reports/
+Tests ${BUILD_URL}/Test_20Reports/
+
+                """
+            )
+        }
+        always {
+            echo "${JOB_NAME} #${BUILD_ID} finished with ${currentBuild.currentResult}"
+        }
+    }
+}
