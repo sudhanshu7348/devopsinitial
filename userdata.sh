@@ -95,7 +95,7 @@ touch /etc/systemd/system/docker.service.d/docker.conf
 echo $'[SERVICE]\nExecStart=\nExecStart=/usr/bin/dockerd -H unix:///var/run/docker.sock -H tcp://0.0.0.0:2375' >> /etc/systemd/system/docker.service.d/docker.conf
 
 # New Relic
-echo "license_key: 4d9c94ef42367f76152f06cbdb5aee3b3797b3e9" | sudo tee -a /etc/newrelic-infra.yml
+echo "license_key: 4d9c94ef42367f | sudo tee -a /etc/newrelic-infra.yml
 curl https://download.newrelic.com/infrastructure_agent/gpg/newrelic-infra.gpg | sudo apt-key add -
 printf "deb [arch=amd64] https://download.newrelic.com/infrastructure_agent/linux/apt bionic main" | sudo tee -a /etc/apt/sources.list.d/newrelic-infra.list
 apt-get update
