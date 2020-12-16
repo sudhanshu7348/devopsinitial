@@ -1,0 +1,51 @@
+pipeline {
+    agent master
+
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '5'))
+        timeout(time: 10, unit: 'MINUTES')
+    }
+
+    environment {
+        REPOS="github.build.ge.com/GSIT/fx-plus-frontend.git"
+    }
+
+    stages {
+        stage ('Prepare') {
+            steps {
+                // version and build configuration
+                withCredentials([usernamePassword(
+                    credentialsId: 'fa7cecaf-511f-4bbb-80d4-c63aa9242f3a',
+                    usernameVariable: 'GIT_USER',
+                    passwordVariable: 'GIT_PASSWORD')])
+                {
+                    sh '''#!/bin/bash
+                    set -x
+                    AUTHOR=$(git show -s --format='%an')
+                    EMAIL=$(git show -s --format='%ae')
+
+                    BRANCH=develop
+                    URL="https://${GIT_USER}:${GIT_PASSWORD}@${REPOS}"
+                    git clone -b "$BRANCH" "$URL" tmp
+
+                    cd tmp
+                    _BRANCH=$(git rev-parse --abbrev-ref HEAD)
+                    _SHA1=$(git rev-parse HEAD)
+                    AUTHOR=$(git show -s --format='%an')
+                    EMAIL=$(git show -s --format='%ae')
+                    '''
+                }
+            }
+        }
+
+    }
+
+    post {
+        always {
+            echo "${JOB_NAME} #${BUILD_ID} finished ..."
+            echo "... with ${currentBuild.result}"
+            echo "... with ${currentBuild.currentResult}"
+        }
+    }
+}
