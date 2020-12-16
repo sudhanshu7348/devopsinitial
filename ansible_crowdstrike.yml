@@ -1,0 +1,57 @@
+---
+  - hosts: all
+    tasks:
+      - name: Creates directory
+        file:
+          path: /tmp/crowdstrike
+          state: directory
+
+      - name: Check if falcon-sensor is installed
+        command: dpkg-query -W falcon-sensor
+        register: falcon_sensor_check_deb
+        failed_when: falcon_sensor_check_deb.rc > 1
+        changed_when: falcon_sensor_check_deb.rc == 1
+
+      - name: Copy Crowndstrike
+        copy:
+            src: ./falcon-sensor_amd64.deb
+            dest: /tmp/crowdstrike/falcon-sensor_amd64.deb
+            owner: ubuntu
+            mode: '0744'
+        when: falcon_sensor_check_deb.rc == 1
+
+      - name: Remove apt lock file
+        become: yes
+        file:
+          state: absent
+          path: "/var/lib/dpkg/lock"
+        when: falcon_sensor_check_deb.rc == 1
+
+      - name: Update apt Cache
+        become: yes
+        apt: 
+            update_cache: yes
+            force_apt_get: yes
+        when: falcon_sensor_check_deb.rc == 1
+
+      - name: Wait 2 minutes for APT to complete on AWS instances
+        pause:
+            minutes: 2
+        when: falcon_sensor_check_deb.rc == 1
+
+      - name: Install falcon-sensor_amd64
+        become: yes
+        apt: 
+          deb: /tmp/crowdstrike/falcon-sensor_amd64.deb
+        when: falcon_sensor_check_deb.rc == 1
+
+      - name: Set CCID for crowdstrike
+        command: /opt/CrowdStrike/falconctl -s --cid=D96C92BDFB0946B589727FF82FB4601A-9E
+        become: yes
+        when: falcon_sensor_check_deb.rc == 1
+
+      - name: Start crowdstrike
+        service:
+          name: falcon-sensor
+          state: started
+        when: falcon_sensor_check_deb.rc == 1
