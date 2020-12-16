@@ -1,0 +1,56 @@
+version: '3.7'
+
+services:
+  meet-ui:
+    image: ${DOCKER_REGISTRY}/${PREPROD_DOCKER_REPO}/${ARTIFACT_NAME}:${APP_BRANCH}-${PROJECT_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ${ENV_FILE}
+    deploy:
+      mode: replicated
+      replicas: 1
+      endpoint_mode: vip
+      placement:
+        constraints: [node.role == worker]
+      labels:
+        - traefik.frontend.passHostHeader=true
+        - traefik.port=${PORT}
+        - traefik.frontend.rule=Host:${HOST}
+        - traefik.backend.healthcheck.interval=30s
+        - traefik.backend.healthcheck.timeout=5s
+        - traefik.docker.network=docker-gateway
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.05'
+          memory: 64M
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 7
+        window: 15s
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        failure_action: continue
+        monitor: 15s
+        order: start-first
+      update_config:
+        parallelism: 1
+        delay: 5s
+        failure_action: rollback
+        monitor: 15s
+        order: start-first
+    # healthcheck:
+    #   test: wget -q http://localhost:5000/ -O /dev/null || exit 1
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 3
+    #   start_period: 5s
+  
+networks:
+  docker-gateway:
+    external: true
