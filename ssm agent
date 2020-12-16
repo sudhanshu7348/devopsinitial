@@ -1,0 +1,20 @@
+---
+  - hosts: all
+    tasks:
+      - name: Creating SSM directory  in tmp
+        become_user: root
+        file:
+          path: /tmp/ssm/
+          state: directory
+
+      - name: Install rpm file for AWS linux family 32/64-bit
+        become: yes
+        become_user: root
+        yum:
+          name: "https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm"
+
+      - name: Starting SSM service    
+        service:     
+          name: amazon-ssm-agent     
+          enabled: yes     
+          state: started
