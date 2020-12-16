@@ -1,0 +1,183 @@
+pipeline {
+    agent  {
+         label 'master'
+    }
+
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '5'))
+        timeout(time: 10, unit: 'MINUTES')
+        timestamps()
+    }
+
+    environment {
+        keyfile2 = "/var/lib/jenkins/.ssh/id_rsa_api_dev2"
+        remote2 = "jenkins@10.229.9.1"
+    }
+
+    parameters {
+        string(name: 'sha1', description: 'only for PullRequests', defaultValue: '')
+    }
+
+    stages {
+        stage ('Gradle') {
+            // common step for protected branches and PullRequests
+            steps {
+                // gradle build to create fx-plus-backend.war file
+                withCredentials([usernamePassword(
+                    credentialsId: 'abf57aeba82',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'TOKEN')])
+                {
+                    lock(resource: 'fx-plus-backend.GRADLE', inversePrecedence: true) {
+                        sh '''#!/bin/bash
+                        set -e
+                        env
+                        chmod +x gradlew
+                        ./gradlew clean build \\
+                            -Partifactory_resolverUser=${USER} \\
+                            -Partifactory_resolverPassword=${TOKEN}
+                        mv fx-plus*/build/libs/fx-plus*.war fx-plus-backend.war
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage ('Version') {
+            when {
+                // proteted branches only, not for PullRequests
+                expression {
+                    return env.GIT_BRANCH ==~ /origin.(develop|release|master)/
+                }
+                // Extend jar file's build-info.properties with job information and
+                // create new file with unique name.
+            }
+            steps {
+                sh '''#!/bin/bash
+                set -e
+                BRR=${GIT_BRANCH##*/}
+                mkdir recycling
+                cd recycling
+                unzip -q ../fx-plus-backend.war
+                mkdir -p WEB-INF/classes/META-INF
+                echo "build.job=${JOB_BASE_NAME}" >> WEB-INF/classes/META-INF/build-info.properties
+                echo "build.id=${BUILD_ID}" >> WEB-INF/classes/META-INF/build-info.properties
+                echo "build.branch=${BRR}" >> WEB-INF/classes/META-INF/build-info.properties
+                echo "build.commit=${GIT_COMMIT}" >> WEB-INF/classes/META-INF/build-info.properties
+                zip -q -0 -r ../fx-plus-backend.${BRR}.${BUILD_ID}.war *
+                cd ..
+                rm -rf recycling
+                rm fx-plus-backend.war
+                echo done
+                '''
+            }
+        }
+
+        stage ('Artifactory') {
+            when {
+                // proteted branches only, not for PullRequests
+                expression {
+                    return env.GIT_BRANCH ==~ /origin.(develop|release|master)/
+                }
+                // Use the version-extended filename, created in previous stage.
+            }
+            steps {
+                rtServer (
+                    id: 'Artifactory-1',
+                    url: "https://artifactory.build.ge.com",
+                    credentialsId: 'abf7f837-8826-4b0a-98c8-d03f57aeba82'
+                )
+                rtUpload (
+                    serverId: 'Artifactory-1',
+                    spec: '''{
+                        "files": [{
+                            "pattern": "fx-plus-backend.([a-z]+).([0-9.]+).war",
+                            "target": "OHJKB/com/ge/healthcare/fx/fx-plus-backend/{1}/fx-plus-backend.{1}.{2}.war",
+                            "recursive": "false",
+                            "regexp": "true"
+                        }]
+                    }'''
+                )
+            }
+        }
+
+        stage ('Deployment') {
+            when {
+                // only for development, not for PullRequests, not for stage or production
+                environment name: 'GIT_BRANCH', value: 'origin/develop'
+            }
+            steps {
+                // upload artifact and managed script to remote and run deployment
+                configFileProvider([configFile(
+                    fileId: '1311ecdc-e91c-411b-999b-02e9aa30b57f',
+                    targetLocation: '.')])
+                {
+                    sh """#!/bin/bash
+                    set -e
+                    # skip ${env.remote1}
+                    scp -i ${env.keyfile2}  deploy_to_tomcat.sh  ${env.remote2}:.
+                    scp -i ${env.keyfile2}  fx-plus-backend*.war  ${env.remote2}:fx-plus-backend.war
+                    ssh -i ${env.keyfile2}  ${env.remote2}  "export CATALINA_BASE=/apps/jeeapp/tomcat/current/; bash deploy_to_tomcat.sh fx-plus-backend.war"
+                    """
+                }
+            }
+        }
+
+    }
+
+    post {
+        failure {
+            // Generate HTML Reports
+            script {
+                echo "${JOB_NAME} #${BUILD_ID} finished with ${currentBuild.currentResult}"
+                def jacocoHtmlFiles
+                def testHtmlFiles
+                def HTMLFILES
+                dir ('.') {
+                    jacocoHtmlFiles = findFiles glob: 'fx-plus-*/build/jacocoHtml/index.html'
+                    testHtmlFiles = findFiles glob: 'fx-plus-*/build/reports/tests/test/index.html'
+                }
+                publishHTML([
+                    allowMissing: true,
+                    alwaysLinkToLastBuild: false,
+                    keepAll: true,
+                    reportDir: '.',
+                    reportFiles: jacocoHtmlFiles.join(','),
+                    reportName: 'Jacoco Reports'
+                ])
+                publishHTML([
+                    allowMissing: true,
+                    alwaysLinkToLastBuild: false,
+                    keepAll: true,
+                    reportDir: '.',
+                    reportFiles: testHtmlFiles.join(','),
+                    reportName: 'Test Reports'
+                ])
+                env.HTMLFILES = jacocoHtmlFiles.join(',') + ',' + testHtmlFiles.join(',')
+            }
+            // notification email
+            emailext (
+                subject: "JENKINS: ${JOB_NAME} ${currentBuild.displayName} - ${currentBuild.currentResult}",
+                to: "f",
+                attachLog: true,
+                attachmentsPattern: "${HTMLFILES}",
+                compressLog: false,
+                body: """
+Job name: ${JOB_NAME}
+Buid id: ${BUILD_ID}
+
+See attached HTML file(s) and
+check console ${JOB_DISPLAY_URL}/${BUILD_ID}/console
+
+Jacoco ${BUILD_URL}/Jacoco_20Reports/
+Tests ${BUILD_URL}/Test_20Reports/
+
+                """
+            )
+        }
+        always {
+            echo "${JOB_NAME} #${BUILD_ID} finished with ${currentBuild.currentResult}"
+        }
+    }
+}
