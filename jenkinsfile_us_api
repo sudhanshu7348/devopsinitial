@@ -1,0 +1,9 @@
+@Library('jenkins-common-libraries') _
+dockerPipeline {
+    appType = 'maven'
+    host = 'dev-meet.dtt.cloud.health.ge.com'
+    serviceName = 'meet-services'
+    stackFile = 'stack.yml'
+    stackName = 'meet'
+    envFile = './dev.env'
+}
