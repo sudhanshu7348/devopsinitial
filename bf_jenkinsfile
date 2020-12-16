@@ -1,0 +1,35 @@
+#!groovy
+def PROJECT_VERSION ='1.4.3'
+def ARTIFACT_NAME ='jenkins'
+
+pipeline{
+    agent { label 'swarm_worker' }
+    environment {
+        HC_ARTIFACTORY = credentials('dtt_artifactory_credentials')
+        DOCKER_REGISTRY = "hc-us-east-aws-artifactory.cloud.health.ge.com"
+        DT_PREPROD_DOCKER_REPO ="docker-dtt-preprod"
+    }
+    stages{
+        stage('Build and Push Image') {
+            steps {
+                script {
+                    dir('CA') {
+                        git branch: 'master', credentialsId: env.credentialsId, url: 'https://github.build.ge.com/DigitalCertificates/CA.git'
+                    }
+                    sh  """
+                        #!/bin/bash
+                        docker build -t ${DOCKER_REGISTRY}/${DT_PREPROD_DOCKER_REPO}/${ARTIFACT_NAME}:${PROJECT_VERSION} .
+                        docker login --username ${HC_ARTIFACTORY_USR} --password ${HC_ARTIFACTORY_PSW} ${DOCKER_REGISTRY}          
+                        docker push ${DOCKER_REGISTRY}/${DT_PREPROD_DOCKER_REPO}/${ARTIFACT_NAME}:${PROJECT_VERSION}
+                        docker logout
+                        """
+			    }
+		    }
+        }
+    }
+    post {
+        always {
+            deleteDir()
+        }
+    }
+}
