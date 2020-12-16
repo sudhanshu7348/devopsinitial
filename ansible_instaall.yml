@@ -1,0 +1,17 @@
+ansible-playbook \
+	-i "$(aws ec2 describe-instances --filter "Name=tag:kubernetes.io/cluster/dt-ext-apps,Values=owned" --query "Reservations[].Instances[].PublicIpAddress" --no-paginate | jq -r '. | map("ec2-user@"+.) | join(",")')" \
+	--private-key ./bu-dt-bastion-access.pem  \
+	--ssh-common-args='-o StrictHostKeyChecking=no' \
+	playbook.yml
+
+ansible-playbook \
+	-i hosts.ini \
+	--private-key ./test-kp.pem  \
+	--ssh-common-args='-o StrictHostKeyChecking=no' \
+	crowdstrike.yml
+
+ansible-playbook \
+	-i hosts.ini \
+	--private-key ./test-kp.pem  \
+	--ssh-common-args='-o StrictHostKeyChecking=no' \
+	qualys.yml
