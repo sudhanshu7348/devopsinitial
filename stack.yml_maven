@@ -1,0 +1,56 @@
+version: '3.7'
+
+services:
+  meet-services:
+    image: ${DOCKER_REGISTRY}/${PREPROD_DOCKER_REPO}/${ARTIFACT_NAME}:${APP_BRANCH}-${PROJECT_VERSION}
+    networks:
+      - docker-gateway
+    env_file:
+      - ${ENV_FILE}
+    deploy:
+      mode: replicated
+      replicas: 1
+      endpoint_mode: vip
+      placement:
+        constraints: [node.role == worker]
+      labels:
+        - traefik.frontend.passHostHeader=true
+        - traefik.port=9191
+        - traefik.frontend.rule=Host:${HOST};PathPrefixStrip:/meet-services/
+        - traefik.backend.healthcheck.interval=30s
+        - traefik.backend.healthcheck.timeout=5s
+        - traefik.docker.network=docker-gateway
+      resources:
+        limits:
+          cpus: '.5'
+          memory: 4g
+        reservations:
+          cpus: '0.25'
+          memory: 2g
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 7
+        window: 15s
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        failure_action: continue
+        monitor: 15s
+        order: start-first
+      update_config:
+        parallelism: 1
+        delay: 5s
+        failure_action: rollback
+        monitor: 15s
+        order: start-first
+    # healthcheck:
+    #   test: wget --quiet --tries=1 --spider http://localhost:9191/swagger-ui.html || exit 1
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 3
+    #   start_period: 5s
+  
+networks:
+  docker-gateway:
+    external: true
