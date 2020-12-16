@@ -1,0 +1,204 @@
+pipeline {
+    agent { label 'master' }
+
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '5'))
+        timeout(time: 12, unit: 'MINUTES')
+    }
+
+    environment {
+        ARTIFACTORY_URL = "https://artifactory.build.ge.com"
+        ARTIFACTORY_TARGET = "OHJKB/com/ge/healthcare/fx/fxPlus"
+        REPOS="github.build.ge.com/GSIT/fx-plus-frontend.git"
+    }
+
+    parameters {
+        choice(
+            choices: ['develop', 'release-2020.2', 'master-2020.2', 'release-2020.3', 'master-2020.3'],
+            description: 'Checkout this branch for build.',
+            name: 'BRANCH')
+        choice(
+            choices: ['demo', 'dev', 'qa', 'stage', 'prod'],
+            description: 'Build with this configuration.',
+            name: 'CONF')
+    }
+
+    stages {
+        stage ('Prepare') {
+            steps {
+                // version and build configuration
+                withCredentials([usernamePassword(
+                    credentialsId: 'fa7cecaf-511f-4bbb-80d4-c63aa9242f3a',
+                    usernameVariable: 'GIT_USER',
+                    passwordVariable: 'GIT_PASSWORD')])
+                {
+                    sh '''#!/bin/bash
+                    set -e
+                    # the real git branches
+                    case $BRANCH in
+                        master-*|release-*|develop) ;;
+                        *) exit 1 ;;
+                    esac
+                    # the ionic build config
+                    case $CONF in
+                        demo|dev|qa|stage|prod) ;;
+                        *) exit 1 ;;
+                    esac
+
+                    # overwrite
+                    case $BRANCH in
+                        master-*)
+                            if [ "$CONF" = "prod" ]; then
+                                VERSION=${BRANCH#*[-]}
+                                echo "### master -> VERSION=$VERSION"
+                            fi
+                            ;;
+                        release-*)
+                            if [ "$CONF" = "stage" ]; then
+                                VERSION=${BRANCH#*[-]}
+                                echo "### release -> VERSION=$VERSION"
+                            fi
+                            ;;
+                    esac
+                    if [ -z "$VERSION" ]; then
+                        VERSION="${BRANCH}.$CONF.$BUILD_ID"
+                        # VERSION="$BUILD_ID"
+                        echo "### default -> VERSION=$VERSION"
+                    fi
+
+                    echo "### rebuild with configuration $CONF on branch $BRANCH ..."
+                    rm -rf *
+
+                    # the repository
+                    URL="https://${GIT_USER}:${GIT_PASSWORD}@${REPOS}"
+                    git clone -b "$BRANCH" "$URL" tmp
+                    cd tmp
+                    _BRANCH=$(git rev-parse --abbrev-ref HEAD)
+                    _SHA1=$(git rev-parse HEAD)
+                    echo "### checkout: branch ${_BRANCH} commit ${_SHA1}"
+                    [ "$BRANCH" = "${_BRANCH}" ] || exit 1
+
+                    ### the static .version.html -- VERSION field for remote identification
+                    DT=$(date +"%Y-%m-%d %H:%M:%S")
+                    (echo "<br># build date $DT";
+                    echo "<br>JOB_BASE_NAME=$JOB_BASE_NAME";
+                    echo "<br>BUILD_ID=$BUILD_ID";
+                    echo "<br>GIT_BRANCH=${_BRANCH}";
+                    echo "<br>GIT_COMMIT=${_SHA1}";
+                    echo "<br>VERSION=${VERSION}";) > .version.html
+                    cat .version.html
+
+                    ### source this file later -- VERSION field for identification in Artifactory
+                    BRANCH=${BRANCH%[-]*}
+                    (echo "BRANCH=$BRANCH";
+                    echo "CONF=$CONF";
+                    echo "VERSION=${BUILD_ID}.$BRANCH.${_SHA1:0:7}";) > .branch
+                    cat .branch
+                    '''
+                }
+            }
+        }
+
+        stage ('Node') {
+            steps {
+                sh '''#!/bin/bash
+                set -e
+                set -x
+                cd tmp
+                source .branch || exit 1
+
+                NODE_VERSION=v10.17.0
+                export PATH="${JENKINS_HOME}/tools/node-$NODE_VERSION-linux-x64/bin/:/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin"
+                export NODE_OPTIONS="--max_old_space_size=4096"
+
+                npm install ionic@5.4.12 -g || exit 1
+                npm install || exit 1
+                ionic build --configuration=${CONF} || exit 1
+                cd sw
+                npm run build:${CONF} || exit 1
+                cd ..
+
+                echo OK
+
+                mv -v .version.html www/version.html
+                '''
+            }
+        }
+
+        stage ('WWW') {
+            // create fxplus.war file for artifactory
+            steps {
+                sh '''#!/bin/bash
+                set -e
+                cd tmp
+                source .branch || exit 1
+                cat www/version.html || exit 1
+
+                cd www
+                mkdir META-INF
+                cat <<'EOF_MF' >META-INF/MANIFEST.MF
+Manifest-Version: 1.0
+Ant-Version: Apache Ant 1.6.5
+Created-By: 1.5.0_06-b05 (Sun Microsystems Inc.)
+EOF_MF
+                mkdir WEB-INF
+                cat <<'EOF_XML' >WEB-INF/web.xml
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<web-app xmlns="http://java.sun.com/xml/ns/j2ee"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://java.sun.com/xml/ns/j2ee http://java.sun.com/xml/ns/j2ee/web-app_2_4.xsd"
+    version="2.4">
+    <display-name>fxplus</display-name>
+</web-app>
+EOF_XML
+                zip -q -r ../fxplus.war *
+
+                cd ..
+                echo "### copy file for Artifactory upload"
+                cp -v fxplus.war ../fxplus-${CONF}-${VERSION}.war
+                '''
+            }
+        }
+
+        stage ('Artifactory') {
+            when {
+                expression {
+                    BUILDCONFIG = sh(returnStdout: true, script: 'egrep CONF= tmp/.branch | cut -c 6-').trim()
+                    return (BUILDCONFIG == 'demo' || BUILDCONFIG == 'qa')
+                }
+            }
+            steps {
+                // upload bundle to Artifactory -- only for qa and demo configuration
+                script {
+                    def server = Artifactory.newServer url: "${env.ARTIFACTORY_URL}",
+                        credentialsId: 'ab7aeba82'
+                    def uploadSpec = """{
+                        "files": [{
+                            "pattern": "fxplus-(qa|demo)-([0-9a-z.-]+).war",
+                            "target": "${env.ARTIFACTORY_TARGET}/{1}/fxplus-{2}.war",
+                            "recursive": "false",
+                            "regexp": "true"
+                        }]
+                    }"""
+                    server.upload(uploadSpec)
+                }
+            }
+        }
+
+        stage ('Cleanup') {
+            steps {
+                sh '''#!/bin/bash
+                rm -rf tmp
+                '''
+            }
+        }
+
+    }
+
+    post {
+        always {
+            echo "${JOB_NAME} #${BUILD_ID} finished with ${currentBuild.currentResult}"
+        }
+    }
+}
