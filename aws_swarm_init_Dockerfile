@@ -1,0 +1,9 @@
+FROM python:2.7-alpine
+ARG proxy
+RUN pip install docker boto3 --proxy=$proxy
+
+WORKDIR /
+
+COPY entry.py /
+
+CMD ["python", "entry.py"]
