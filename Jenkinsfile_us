@@ -1,0 +1,10 @@
+
+@Library('jenkins-common-libraries') _
+dockerMultiPipeline {
+    appType = 'node'
+    host = 'dev-meet.dtt.cloud.health.ge.com'
+    serviceName = 'meet-ui'
+    stackFile = 'stack.yml'
+    stackName = 'meet'
+    envFile = './dev.env'
+}
