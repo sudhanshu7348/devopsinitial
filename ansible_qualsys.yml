@@ -1,0 +1,57 @@
+---
+  - hosts: all
+    tasks:
+      - name: Creates directory
+        file:
+          path: /tmp/qualys
+          state: directory
+
+      - name: Check if qualys-agent is installed
+        command: dpkg-query -W qualys-cloud-agent
+        register: qualys_agent_check_deb
+        failed_when: qualys_agent_check_deb.rc > 1
+        changed_when: qualys_agent_check_deb.rc == 1
+
+      - name: Copy qualys-agent
+        copy:
+            src: ./qualys-cloud-agent.x86_64.deb
+            dest: /tmp/qualys/qualys-cloud-agent.x86_64.deb
+            owner: ubuntu
+            mode: '0744'
+        when: qualys_agent_check_deb.rc == 1
+
+      - name: Remove apt lock file
+        become: yes
+        file:
+          state: absent
+          path: "/var/lib/dpkg/lock"
+        when: qualys_agent_check_deb.rc == 1
+
+      - name: Update apt Cache
+        become: yes
+        apt: 
+            update_cache: yes
+            force_apt_get: yes
+        when: qualys_agent_check_deb.rc == 1
+
+      - name: Wait 2 minutes for APT to complete on AWS instances
+        pause:
+            minutes: 2
+        when: qualys_agent_check_deb.rc == 1
+
+      - name: Install qualys-agent_amd64
+        become: yes
+        apt: 
+          deb: /tmp/qualys/qualys-cloud-agent.x86_64.deb
+        when: qualys_agent_check_deb.rc == 1
+
+      - name: Set activation code for qualys
+        command: /usr/local/qualys/cloud-agent/bin/qualys-cloud-agent.sh CustomerId=9c0e25de-0221-5af6-e040-10ac13043f6a ActivationId=96218d28-7cc4-4965-8f6b-36362b3bd858
+        become: yes
+        when: qualys_agent_check_deb.rc == 1
+
+      - name: Start qualys
+        service:
+          name: qualys-cloud-agent
+          state: started
+          when: qualys_agent_check_deb.rc == 1
