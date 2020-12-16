@@ -1,0 +1,170 @@
+pipeline {
+    agent { label 'master' }
+
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '5'))
+        timeout(time: 10, unit: 'MINUTES')
+    }
+
+    environment {
+        keyfile_dev = "/var/lib/jenkins/.ssh/id_ri_dev2"
+        remote_dev = "jenkins@10.2291"
+        keyfile_qa = "/var/lib/jenkins/.ssh/iddev1"
+        remote_qa = "jenkins@10.229.175.189"
+        keyfile_demo = "/var/lib/jenkins/.ssh/id_us_demo"
+        remote_demo3 = "jenkins@10.229.4"
+        remote_demo4 = "jenkins@10.229226"
+        ARTIFACTORY = "https://artifactory.build.ge.com/OHJKB/com/ge/healthcare/fx"
+    }
+
+    parameters {
+        choice(
+            choices: ['fx-plus-frontend', 'fx-plus-backend', 'fx-auth-server'],
+            description: 'Deploy from an FxPlus repository. Select artifact version from dynamic list later.',
+            name: 'REPOS')
+        choice(
+            choices: ['dev', 'qa', 'demo'],
+            description: 'Deploy from an FxPlus repository. Select artifact version from dynamic list later.',
+            name: 'TARGET')
+        choice(
+            choices: ['develop', 'qa', 'demo', 'release', 'master'],
+            description: 'Select Artifactory branch (path component) for the pop-up list. Front-End: [develop qa demo release] Back-End: [develop release]',
+            name: 'ARTIFACT_BRANCH')
+    }
+
+    stages {
+        stage ('Prepare list') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'abf7f837-88263f57aeba82',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'TOKEN')])
+                {
+                    // Prepare a artifact list and write to file, limited to the last 20 artifacts -- latest first
+                    sh '''#!/bin/bash
+                    case "${ARTIFACT_BRANCH}" in
+                        develop|qa|demo|release|master)
+                            ;;
+                        *)
+                            exit 1
+                            ;;
+                    esac
+                    case "$REPOS" in
+                        fx-plus-frontend)
+                            URL="${ARTIFACTORY}/fxPlus/${ARTIFACT_BRANCH}"
+                            ;;
+                        *)
+                            URL="${ARTIFACTORY}/${REPOS}/${ARTIFACT_BRANCH}"
+                            ;;
+                    esac
+                    curl -u $USER:$TOKEN "${URL}/" -s -l | egrep "^<a href=." | sort -V -r | head -20 | \\
+                    sed -re 's,<[^>]+>,,g' | \\
+                    awk '{print $1,$2,$3}' > ${WORKSPACE}/list
+
+                    echo "From repository: ${REPOS}"
+                    echo "Target environment: ${TARGET}"
+                    echo "Artifactory branch: ${ARTIFACT_BRANCH}"
+                    echo "LATEST artifact: $(head -1 ${WORKSPACE}/list) option"
+                    '''
+                }
+            }
+        }
+
+        stage("Select item") {
+            steps {
+                script {
+                    // Load the list into a variable
+                    env.LIST = readFile (file: "${WORKSPACE}/list")
+
+                    // Show the select input
+                    env.SELECT = input message: 'Select artifact to deploy', ok: 'Deploy!',
+                        parameters: [choice(name: 'SELECT', choices: env.LIST, description: 'Filename and timestamp')]
+
+                    // Save selection for next stage
+                    writeFile (file: "${WORKSPACE}/selected", text: "${env.SELECT}")
+
+                }
+                echo "From repository: ${REPOS}"
+                echo "Target environment: ${TARGET}"
+                echo "Artifactory branch: ${ARTIFACT_BRANCH}"
+                echo "Selected: ${env.SELECT}"
+            }
+        }
+
+        stage ('Download') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'abf7f837-8826-4b0a-98c8-d03f57aeba82',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'TOKEN')])
+                {
+                    // Download the selected artifact for deployment
+                    sh '''#!/bin/bash
+                    ITEM=$(cat ${WORKSPACE}/selected | awk '{print $1}')
+                    case "$REPOS" in
+                        fx-plus-frontend)
+                            URL="${ARTIFACTORY}/fxPlus/${ARTIFACT_BRANCH}/${ITEM}"
+                            ;;
+                        *)
+                            URL="${ARTIFACTORY}/${REPOS}/${ARTIFACT_BRANCH}/${ITEM}"
+                            ;;
+                    esac
+                    curl -q -u $USER:$TOKEN -s "$URL" -o "${ITEM}" || echo "Download ${ITEM} failed"
+                    '''
+                }
+            }
+        }
+
+        stage ('Deployment') {
+            steps {
+                configFileProvider([configFile(
+                    fileId: '1311ecdc-e91c-411b-999b-02e9aa30b57f',
+                    targetLocation: '.')])
+                {
+                    // Deploy the downloaded war file
+                    sh '''#!/bin/bash
+                    ITEM=$(cat ${WORKSPACE}/selected | awk '{print $1}')
+                    case "$REPOS" in
+                        fx-plus-frontend)
+                            WHALE="fxplus.war"
+                            ;;
+                        fx-plus-backend)
+                            WHALE="fx-plus-backend.war"
+                            ;;
+                        fx-auth-server)
+                            WHALE="fx-auth-server.war"
+                            ;;
+                        *)
+                            WHALE=$(echo ${ITEM} | sed -re 's,(develop|release).*$,,')
+                            ;;
+                    esac
+                    mv -v $ITEM $WHALE || exit 1
+                    echo "Start deployment of $WHALE to $TARGET"
+                    case "$TARGET" in
+                        dev)
+                            scp -i ${keyfile_dev}  deploy_to_tomcat.sh ${WHALE}  ${remote_dev}:.
+                            ssh -i ${keyfile_dev}  ${remote_dev}  "export CATALINA_BASE=/apps/jeeapp/tomcat/current/; bash deploy_to_tomcat.sh ${WHALE}"
+                            ;;
+                        qa)
+                            scp -i ${keyfile_qa}  deploy_to_tomcat.sh ${WHALE}  ${remote_qa}:.
+                            ssh -i ${keyfile_qa}  ${remote_qa}  "export CATALINA_BASE=/apps/jeeapp/tomcat/current/; bash deploy_to_tomcat.sh ${WHALE}"
+                            ;;
+                        demo)
+                            scp -i ${keyfile_demo}  deploy_to_tomcat.sh ${WHALE}  ${remote_demo3}:.
+                            ssh -i ${keyfile_demo}  ${remote_demo3}  "export CATALINA_BASE=/apps/jeeapp/tomcat/current/; bash deploy_to_tomcat.sh ${WHALE}"
+                            scp -i ${keyfile_demo}  deploy_to_tomcat.sh ${WHALE}  ${remote_demo4}:.
+                            ssh -i ${keyfile_demo}  ${remote_demo4}  "export CATALINA_BASE=/apps/jeeapp/tomcat/current/; bash deploy_to_tomcat.sh ${WHALE}"
+                            ;;
+                        *)
+                            exit 1
+                            ;;
+                    esac
+                    echo "Done"
+                    '''
+                }
+            }
+        }
+
+    }
+}
