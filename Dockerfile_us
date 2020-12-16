@@ -1,0 +1,28 @@
+FROM node:11-alpine AS builder
+WORKDIR /apps
+COPY . /apps/
+RUN npm config set prefix node_modules && \
+  npm config set registry "https://registry.npmjs.org" && \
+	export PATH=$PATH:node_modules/.bin && \
+	npm config set strict-ssl false && \
+	npm install --verbose && \
+	npm run build
+
+FROM hc-us-east-aws-artifactory.cloud.health.ge.com/docker-dtt-preprod/sonarqube-client:latest AS scanner
+ARG SONAR_URL
+ARG PROJECT_KEY
+ARG VERSION_NO_ARG
+RUN apk add --update nodejs
+COPY --from=builder /apps .
+RUN sonar-scanner -Dsonar.projectKey=$PROJECT_KEY -Dsonar.projectVersion=$VERSION_NO -Dsonar.host.url=$SONAR_URL -Dsonar.login=readonly -Dsonar.password=readonly -Dsonar.java.binaries=build/ -Dsonar.verbose=true -Dsonar.log.level=TRACE
+
+FROM node:11-alpine
+ENV PORT 5000
+ENV meetAPIURl http://meet_meet-services:9191
+##############proxy
+#ENV HTTP_PROXY "http://3.28.29.241:88"
+#ENV HTTPS_PROXY "http://3.28.29.241:88"
+EXPOSE 5000
+WORKDIR /apps
+COPY --from=builder /apps .
+CMD ["npm", "start"]
