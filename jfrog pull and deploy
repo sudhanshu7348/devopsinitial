@@ -1,0 +1,121 @@
+#!/bin/bash
+
+exec >>~/.cron.log 2>&1
+
+if [ `whoami` != 'predix' ]; then
+	echo Must be run as predix
+	exit 0
+fi
+
+target="$1"
+echo -n "$(date +'%Y.%m.%d %H:%M:%S') ($target)"
+jarfile=
+
+URL=https://artifactory.build.ge.com
+case "$target" in
+    siebel-international-api)
+	jarfile=$target.jar
+	port=8090
+	URL=$URL/OHJKB/com/ge/healthcare/fx/$target/develop/
+	;;
+    siebel-uscan-api)
+	jarfile=$target.jar
+	port=8091
+	URL=$URL/OHJKB/com/ge/healthcare/fx/$target/develop/
+	;;
+    datalake-api)
+	jarfile=$target.jar
+	port=8092
+	URL=$URL/OHJKB/com/ge/healthcare/fx/$target/develop/
+	;;
+    glprod-api)
+	jarfile=$target.jar
+	port=8093
+	URL=$URL/OHJKB/com/ge/healthcare/fx/$target/develop/
+	;;
+    cdx-datalake)
+	jarfile=$target.jar
+	port=8094
+	URL=$URL/OHJKB/com/ge/healthcare/fx/$target/develop/
+	;;
+    *)
+	echo "invalid/missing target"
+	exit 1
+esac
+
+# get data from artifactory -- keep latest artifacts for evidence
+getfile_sequence()
+{
+	cd ~/downloads
+
+	USER=502779109
+	#TOKEN=A
+	TOKEN=AK
+	echo -n > .list
+	curl -u $USER:$TOKEN $URL -s -l 2>/dev/null | tr '"' ' ' |\
+	awk -vPREF=$URL -vTARGET=$target '{if ($3 ~ TARGET) {print PREF"/"$3,$(NF-3),$(NF-2)}}' >> .list
+
+	FILE=$(cat .list | sort -V | tail -1 | awk '{print $1}')
+	if [ "$FILE" ]; then
+		F2=$(basename $FILE)
+		if [ ! -f $F2 ]; then
+			echo
+			echo "download  $(date +'%Y.%m.%d %H:%M:%S') $F2 ..."
+			curl -u $USER:$TOKEN -s -O $FILE || echo err $?
+			chmod 644 $F2
+			cp -fv $F2 ../$jarfile
+		fi
+	fi
+	rm -f .list
+	cd
+
+	# the data available flag
+	if [ ! -f "$jarfile" ]; then
+		echo " no new data"
+		return 1
+	fi
+	return 0
+}
+
+deploy_sequence()
+{
+	if [ ! -f "$jarfile" ]; then
+		echo " nothing available"
+		return 0
+	fi
+
+	echo
+	echo "*** begin deploy_sequence ... $(date +'%Y.%m.%d %H:%M:%S') ($target)"
+
+	# must have separate directories: own pid and own logs
+	cd /local/apps/predix/$target || exit
+	umask 002
+
+	# create config file, once
+	if [ ! -f config ]; then
+cat <<. > config
+jarfile=$jarfile
+port=$port
+profile=development
+.
+	fi
+
+	bin/api-service stop
+	sleep 2
+	echo "Check status: "
+	bin/api-service status
+
+	echo "Copy file to $(pwd)/jars/"
+	mv -fv ~/$jarfile  jars/
+
+	bin/api-service start
+	sleep 2
+	echo "Check status: "
+	bin/api-service status
+
+	echo "*** done"
+	echo
+}
+
+# start deployment only if there is new data
+getfile_sequence && deploy_sequence
