@@ -1,0 +1,24 @@
+FROM hc-us-east-aws-artifactory.cloud.health.ge.com/docker-all/jaas/jenkins-master:1.0.201908
+USER root
+# Add addtional plugins
+RUN echo 'configuration-as-code:1.31' >> /tmp/plugins.txt && \
+    echo 'parameterized-scheduler:0.8' >> /tmp/plugins.txt && \
+    echo 'serenity:1.2' >> /tmp/plugins.txt && \
+    echo 'performance:3.17' >> /tmp/plugins.txt && \
+    echo 'Office-365-Connector:4.5' >> /tmp/plugins.txt && \
+    /usr/local/bin/install-plugins.sh < /tmp/plugins.txt
+# Install root certs
+COPY CA/Prod ca/
+RUN for i in `find ca -name "*.pem"`; do f=`basename $i .pem`; cp ca/$f.pem /usr/local/share/ca-certificates/$f.crt; done;
+RUN update-ca-certificates
+# Install the certs for non-prod
+RUN openssl s_client -showcerts -connect nprd.dtt.cloud.health.ge.com:443 < /dev/null | openssl x509 -outform DER > sonarqube-dt.der && \
+    keytool -import -alias SonarQube-DT -trustcacerts -keystore $JAVA_HOME/jre/lib/security/cacerts -noprompt -storepass "changeit" -file sonarqube-dt.der && \
+    openssl s_client -showcerts -connect nprd.bf.cloud.health.ge.com:443 < /dev/null | openssl x509 -outform DER > sonarqube-bf.der && \
+    keytool -import -alias SonarQube-BF -trustcacerts -keystore $JAVA_HOME/jre/lib/security/cacerts -noprompt -storepass "changeit" -file sonarqube-bf.der && \
+    openssl s_client -showcerts -connect nprd.bfe.cloud.health.ge.com:443 < /dev/null | openssl x509 -outform DER > sonarqube-bfe.der && \
+    keytool -import -alias SonarQube-BFE -trustcacerts -keystore $JAVA_HOME/jre/lib/security/cacerts -noprompt -storepass "changeit" -file sonarqube-bfe.der && \
+    openssl s_client -showcerts -connect nprd.uscanservices.cloud.health.ge.com:443 < /dev/null | openssl x509 -outform DER > sonarqube-uscan.der && \
+    keytool -import -alias SonarQube-USCAN -trustcacerts -keystore $JAVA_HOME/jre/lib/security/cacerts -noprompt -storepass "changeit" -file sonarqube-uscan.der && \
+    rm *.der
+USER jenkins
