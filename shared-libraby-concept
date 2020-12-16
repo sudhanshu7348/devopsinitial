@@ -1,0 +1,212 @@
+
+Skip to end of metadata
+Created by Schultz, Nick, last modified on Feb 28, 2020
+Go to start of metadata
+Several common Jenkins Jobs/Scripts have been created to make the conversion easier. To use the common jobs/scripts, add this line to the top of pipeline (either directly in the jenkins configuration for your job or through your Jenkinsfile.
+
+Import Statement
+@Library('jenkins-common-libraries') _
+Jobs
+deployTemplate
+This job is used to deploy stacks into production through the jumpbox.
+
+This job does not build or migrate any images.
+The image already has to exist in Artifactory or Docker Hub before this job can be run.
+Deploy Example
+@Library('jenkins-common-libraries') _
+deployTemplate {
+    projectBranch = 'stack'
+    gitUrl = 'https://github.build.ge.com/HealthcareBrilliantFactoryPredixTeam/as-bf.git'
+    stackFileName = 'stack.yml'
+    stackName = 'bf-prod'
+    dockerRepo = 'docker-brilliant-factory-preprod'
+    appBranch = 'stack'
+    serviceName = 'as-bf'
+    host = 'prd.bf.cloud.health.ge.com'
+    appType = 'node'
+    envFile = './.env.prod'
+}
+Parameters
+
+gitUrl	HTTPS URL for your GitHub repository. Used for checking out the stack and env file.	REQUIRED
+projectBranch	Name of the branch in your GitHub repository. Used for checking out the stack and env file.	REQUIRED
+appType	
+Indicates the type of application. If this is set then the application will try to pull the artifactName, projectVersion and portNumber from the respective files. If these values are hardcoded in the stack file, then the appType can be null. If you would like to set them directly in the pipeline, then the appType can be null.
+
+Gradle - Pulls projectVersion from build.gradle
+Maven - Pulls projectVersion and artifactName from pom.xml
+Node - Pulls projectVersion and artifactName from package.json
+All (except for NULL) - Pulls port from Dockerfile
+OPTIONAL
+stackFileName	The name of the stack file (typically stack.yml). If this is not in the root directory of your project then include the path with the name.	REQUIRED
+stackName	The name of the stack being deployed. If the stack name doesn't already exist, then a new stack will be created. If the stack name already exists, then the services will either be added to existing stack or update the existing service (if the service name matches).	REQUIRED
+projectVersion	
+This is not needed if you are using appType or if you are not using the value in your stack file. This value maps to PROJECT_VERSION.
+
+The highlighted part of the image name below:
+
+hc-us-east-aws-artifactory.cloud.health.ge.com/docker-brilliant-factory-preprod/jenkins:master-1.4.2
+
+OPTIONAL
+artifactName	
+This is not needed if you are using appType or if you are not using the value in your stack file. This value maps to ARTIFACT_NAME.
+
+The highlighted part of the image name below:
+
+hc-us-east-aws-artifactory.cloud.health.ge.com/docker-brilliant-factory-preprod/jenkins:master-1.4.2
+
+OPTIONAL
+dockerRepo	
+This is not needed if you are not using the value in your stack file. This value maps to BF_PREPROD_DOCKER_REPO, PREPROD_DOCKER_REPO & DOCKER_REPO.
+
+The highlighted part of the image name below:
+
+hc-us-east-aws-artifactory.cloud.health.ge.com/docker-brilliant-factory-preprod/jenkins:master-1.4.2
+
+OPTIONAL
+appBranch	
+This is not needed if you are not using the value in your stack file. This value maps to APP_BRANCH.
+
+The highlighted part of the image name below:
+
+hc-us-east-aws-artifactory.cloud.health.ge.com/docker-brilliant-factory-preprod/jenkins:master-1.4.2
+
+OPTIONAL
+port	The port that Traefik should use for sending http requests. This is not needed if you are using appType or if you are not using the value in your stack file. This value maps to PORT.	OPTIONAL
+serviceName	The path that Traefik should match on for sending http requests. This is not needed if you are not using the value in your stack file. This value maps to SERVICE_NAME.	OPTIONAL
+host	The host that Traefik should match on for sending http requests. This is not needed if you are not using the value in your stack file. This value maps to HOST.	OPTIONAL
+envFile	The name/location of the file (relative to the root project directory) containing the environment variables. This is not needed if you are not using the value in your stack file. This value maps to ENV_FILE.	OPTIONAL
+dockerMultiPipeline
+This job is used to build images and deploy them as stacks to the Docker Swarm.
+
+This will run against every branch that it's in your GitHub repo (provided they have a Jenkinsfile) and execute builds and deploys.
+It will use your swarm's non-prod repository for storing the image and automatically deploy to non-prod for any branch that isn't named 'master'.
+It will use your swarm's prod repository for storing the image and NOT deploy for any branch named 'master'.
+The job expects that any build steps are contained within the Dockerfile.
+The job expects the Dockerfile to contain a stage named scanner (used for scanning the job and sending the data off to SonarQube).
+The Dockerfile must be in the root project directory and named Dockerfile.
+Multi Example
+@Library('jenkins-common-libraries') _
+dockerMultiPipeline {
+    appType = 'node'
+    host = 'nprd.bf.cloud.health.ge.com'
+    serviceName = 'as-bf'
+    stackFile = 'stack.yml'
+    stackName = 'topic-aws_ds_env'
+    envFile = './.env.dev'
+}
+Dockerfile Example
+FROM gradle:4.9.0-jdk8-alpine as builder
+RUN mkdir /home/gradle/project
+WORKDIR /home/gradle/project
+COPY --chown=gradle:gradle  . /home/gradle/project
+RUN gradle clean build -x test
+ 
+FROM hc-us-east-aws-artifactory.cloud.health.ge.com/docker-dtt-preprod/sonarqube-client:latest as scanner
+ARG SONAR_URL
+ARG PROJECT_KEY
+ARG VERSION_NO_ARG
+COPY --from=builder /home/gradle/project .
+RUN sonar-scanner -Dsonar.projectKey=$PROJECT_KEY -Dsonar.projectVersion=$VERSION_NO -Dsonar.host.url=$SONAR_URL -Dsonar.login=readonly -Dsonar.password=readonly -Dsonar.java.binaries=build/ -Dsonar.verbose=true -Dsonar.log.level=TRACE
+ 
+FROM tomcat:8-jre8
+ENV UAA_CONFIG_PATH  /uaa
+ENV CATALINA_BASE:   /usr/local/tomcat
+ENV CATALINA_HOME:   /usr/local/tomcat
+ENV CATALINA_TMPDIR: /usr/local/tomcat/temp
+ENV JRE_HOME:        /usr
+ADD uaa.yml /uaa/uaa.yml
+ENV UAA_CONFIG_PATH=/uaa
+RUN rm -rf $CATALINA_HOME/webapps/*
+COPY --from=builder /home/gradle/project/uaa/build/libs/cloudfoundry-identity-uaa-4.28.0.war $CATALINA_HOME/webapps/uaa.war
+EXPOSE 8080
+CMD ["catalina.sh", "run"]
+Parameters
+
+appType	
+Indicates the type of application. If this is set then the application will try to pull the artifactName, projectVersion and portNumber from the respective files. If these values are hardcoded in the stack file, then the appType can be null. If you would like to set them directly in the pipeline, then the appType can be null.
+
+Gradle - Pulls projectVersion from build.gradle
+Maven - Pulls projectVersion and artifactName from pom.xml
+Node - Pulls projectVersion and artifactName from package.json
+All (except for NULL) - Pulls port from Dockerfile
+OPTIONAL
+stackFileName	The name of the stack file (typically stack.yml). If this is not in the root directory of your project then include the path with the name.	REQUIRED
+stackName	The name of the stack being deployed. If the stack name doesn't already exist, then a new stack will be created. If the stack name already exists, then the services will either be added to existing stack or update the existing service (if the service name matches).	REQUIRED
+projectVersion	
+This is not needed if you are using appType or if you are not using the value in your stack file. This value maps to PROJECT_VERSION.
+
+The highlighted part of the image name below:
+
+hc-us-east-aws-artifactory.cloud.health.ge.com/docker-brilliant-factory-preprod/jenkins:master-1.4.2
+
+OPTIONAL
+artifactName	
+This is not needed if you are using appType or if you are not using the value in your stack file. This value maps to ARTIFACT_NAME.
+
+The highlighted part of the image name below:
+
+hc-us-east-aws-artifactory.cloud.health.ge.com/docker-brilliant-factory-preprod/jenkins:master-1.4.2
+
+OPTIONAL
+port	The port that Traefik should use for sending http requests. This is not needed if you are using appType or if you are not using the value in your stack file. This value maps to PORT.	OPTIONAL
+serviceName	The path that Traefik should match on for sending http requests. This is not needed if you are not using the value in your stack file. This value maps to SERVICE_NAME.	OPTIONAL
+host	The host that Traefik should match on for sending http requests. This is not needed if you are not using the value in your stack file. This value maps to HOST.	OPTIONAL
+envFile	The name/location of the file (relative to the root project directory) containing the environment variables. This is not needed if you are not using the value in your stack file. This value maps to ENV_FILE.	OPTIONAL
+dockerPipeline
+This job is used to build images and deploy them as stacks to the Docker Swarm.
+
+This will run against a single branch in your repository (which can be configured through a build parameter).
+It will use your swarm's non-prod repository for storing the image and automatically deploy if you specify 'non-production' at build time.
+It will use your swarm's prod repository for storing the image and NOT deploy if you specify 'production' at build time.
+The job expects that any build steps are contained within the Dockerfile.
+The job expects the Dockerfile to contain a stage named scanner (used for scanning the job and sending the data off to SonarQube).
+The Dockerfile must be in the root project directory and named Dockerfile.
+Deploy Example
+@Library('jenkins-common-libraries') _
+dockerPipeline {
+    gitUrl = 'https://github.build.ge.com/HealthcareBrilliantFactoryPredixTeam/as-bf.git'
+    stackFileName = 'stack.yml'
+    stackName = 'bf-prod'
+    serviceName = 'as-bf'
+    host = 'prd.bf.cloud.health.ge.com'
+    appType = 'node'
+    envFile = './.env.prod'
+}
+Parameters
+
+gitUrl	HTTPS URL for your GitHub repository. Used for checking out the stack and env file.	REQUIRED
+appType	
+Indicates the type of application. If this is set then the application will try to pull the artifactName, projectVersion and portNumber from the respective files. If these values are hardcoded in the stack file, then the appType can be null. If you would like to set them directly in the pipeline, then the appType can be null.
+
+Gradle - Pulls projectVersion from build.gradle
+Maven - Pulls projectVersion and artifactName from pom.xml
+Node - Pulls projectVersion and artifactName from package.json
+All (except for NULL) - Pulls port from Dockerfile
+OPTIONAL
+stackFileName	The name of the stack file (typically stack.yml). If this is not in the root directory of your project then include the path with the name.	REQUIRED
+stackName	The name of the stack being deployed. If the stack name doesn't already exist, then a new stack will be created. If the stack name already exists, then the services will either be added to existing stack or update the existing service (if the service name matches).	REQUIRED
+projectVersion	
+This is not needed if you are using appType or if you are not using the value in your stack file. This value maps to PROJECT_VERSION.
+
+The highlighted part of the image name below:
+
+hc-us-east-aws-artifactory.cloud.health.ge.com/docker-brilliant-factory-preprod/jenkins:master-1.4.2
+
+OPTIONAL
+artifactName	
+This is not needed if you are using appType or if you are not using the value in your stack file. This value maps to ARTIFACT_NAME.
+
+The highlighted part of the image name below:
+
+hc-us-east-aws-artifactory.cloud.health.ge.com/docker-brilliant-factory-preprod/jenkins:master-1.4.2
+
+OPTIONAL
+port	The port that Traefik should use for sending http requests. This is not needed if you are using appType or if you are not using the value in your stack file. This value maps to PORT.	OPTIONAL
+serviceName	The path that Traefik should match on for sending http requests. This is not needed if you are not using the value in your stack file. This value maps to SERVICE_NAME.	OPTIONAL
+host	The host that Traefik should match on for sending http requests. This is not needed if you are not using the value in your stack file. This value maps to HOST.	OPTIONAL
+envFile	The name/location of the file (relative to the root project directory) containing the environment variables. This is not needed if you are not using the value in your stack file. This value maps to ENV_FILE.	OPTIONAL
+Scripts
+The jobs have been broken into smaller component scripts to help with reuse. If you cannot use the jobs as they are, you can potentially get some benefit by reusing the components.
+
+You can find the groovy jobs and scripts in this repo: https://github.build.ge.com/DET-Software-Cloud-Ops/jenkins-common-libraries
