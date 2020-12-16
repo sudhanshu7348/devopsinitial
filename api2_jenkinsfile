@@ -1,0 +1,170 @@
+pipeline {
+    agent any
+
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 10, unit: 'MINUTES')
+    }
+
+    environment {
+        ARTIFACTORY_URL = "https://devcloud.swcoe.ge.com/artifactory"
+        ARTIFACTORY_TARGET = "OHJKB/com/ge/healthcare/fx/Fx-API"
+    }
+
+    parameters {
+        string(name: 'sha1', description: 'only for PullRequests', defaultValue: '')
+    }
+
+    stages {
+        stage ('Prepare') {
+            steps {
+                // version increment (usually protected branches only, not for PullRequests)
+                withCredentials([usernamePassword(
+                    credentialsId: 'fa7cecaf-511f-9242f3a',
+                    usernameVariable: 'GIT_USER',
+                    passwordVariable: 'GIT_PASSWORD')])
+                {
+                    configFileProvider([configFile(
+                        fileId: '70355595-b43c-4b1d-80ee-e279b11c96bd',
+                        targetLocation: '.')])
+                    {
+                        sh '''#!/bin/bash
+                        set -e
+                        if [ -n "$ghprbTargetBranch" ]; then
+                            BRANCH=$(basename $ghprbTargetBranch)
+                        else
+                            BRANCH=$(basename $GIT_BRANCH)
+                        fi
+                        case $BRANCH in
+                            release)
+                                TARGET_AM=stg
+                                ;;
+                            master)
+                                TARGET_AM=prd
+                                ;;
+                            *|develop)
+                                TARGET_AM=dev
+                                ;;
+                        esac
+                        bash version-increment.sh fx-api-version
+
+                        echo "<br>TARGETENV=${TARGET_AM}" >> .version.html
+                        # Groovy parser and backslash...
+                        VERSION=$(sed -nr -e '/^.*VERSION=/s/^.*VERSION=(.*)/\\1/p' .version.html)
+                        (echo "BRANCH=$BRANCH";
+                        echo "TARGET_AM=$TARGET_AM";
+                        echo "VERSION=$VERSION";) > .branch
+                        mv .version.html fx-actuator-api/src/main/resources/version.html
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage ('Maven') {
+            // common step for protected branches and PullRequests
+            tools {
+                maven "Maven 3.3.9"
+                jdk "Oracle JDK 1.8.0 update 141 (64-bit)"
+            }
+            steps {
+                // build to create jar files, additionally create a bundle for upload and deploy 
+                sh '''#!/bin/bash
+                set -e
+                source .branch
+
+                # maven build with parameters (all builds)
+                JOB_MVN_OPTIONS="-s /var/lib/jenkins/.m2/settings2.xml"
+                cd crm-am-parent
+                mvn clean install -U -Denv.name=${TARGET_AM:-dev} ${JOB_MVN_OPTIONS}
+                cd ../datalake-api
+                mvn clean install -U ${JOB_MVN_OPTIONS}
+                cd ../glprod-api
+                mvn clean install -U ${JOB_MVN_OPTIONS}
+                cd ../fx-actuator-api
+                mvn clean install -U ${JOB_MVN_OPTIONS}
+                cd ..
+
+                # create the bundle (important only for protected branches)
+                bash create_bundle.sh
+                ls -l API-bundle*.tgz
+                '''
+            }
+        }
+
+        stage ('Artifactory') {
+            when {
+                // proteted branches only, not for PullRequests
+                expression {
+                    return env.GIT_BRANCH ==~ /origin.(develop|release|master)/
+                }
+            }
+            steps {
+                // upload bundle to Artifactory
+                script {
+                    def server = Artifactory.newServer url: "${env.ARTIFACTORY_URL}",
+                        credentialsId: '3f790aed-a84d
+                    def uploadSpec = """{
+                        "files": [{
+                            "pattern": "API-bundle-([a-z]+).([0-9.]+).tgz",
+                            "target": "${env.ARTIFACTORY_TARGET}/{1}/API-bundle-{1}.{2}.tgz",
+                            "recursive": "false",
+                            "regexp": "true"
+                        }]
+                    }"""
+                    server.upload(uploadSpec)
+                }
+            }
+        }
+
+        stage ('Deployment') {
+            when {
+                // only for development, not for PullRequests
+                environment name: 'GIT_BRANCH', value: 'origin/develop'
+            }
+            steps {
+                // email for manual deployment (only for develop)
+                emailext (
+                    subject: "JENKINS: ${JOB_NAME} ${currentBuild.displayName} - ${currentBuild.currentResult}",
+                    to: ".com",
+                    body: """
+Job name: ${JOB_NAME}
+Buid id: ${BUILD_ID}
+Console ${JOB_DISPLAY_URL}/${BUILD_ID}/console
+
+Manual deployment required:
+download LATEST API-bundle-*.tgz from Artifactory from
+${env.ARTIFACTORY_URL}/${env.ARTIFACTORY_TARGET}/develop/
+and deploy it.
+
+                    """,
+                    attachLog: false
+                )
+            }
+        }
+
+    }
+
+    post {
+        failure {
+            // notification email
+            emailext (
+                subject: "JENKINS: ${JOB_NAME} ${currentBuild.displayName} - ${currentBuild.currentResult}",
+                to: "om, attila.gymolnar@ge.com",
+                body: '''
+Job name: ${JOB_NAME}
+Buid id: ${BUILD_ID}
+
+See the attached log or
+check console ${JOB_DISPLAY_URL}/${BUILD_ID}/console
+
+                ''',
+                attachLog: true
+            )
+        }
+        always {
+            echo "${JOB_NAME} #${BUILD_ID} finished with ${currentBuild.currentResult}"
+        }
+    }
+}
