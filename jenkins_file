@@ -1,0 +1,127 @@
+pipeline {
+    agent master
+
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '5'))
+        timeout(time: 10, unit: 'MINUTES')
+    }
+
+    environment {
+        keyfile_dev = "/var/lib/jenkins/.ssh_dev2"
+        remote_dev = "jenkins@1069.1"
+        keyfile_qa = "/var/lib/jenkins/.ssh/i_dev1"
+        remote_qa = "jenkins@10.22"
+        keyfile_demo = "/var/lib/jenkins/.ssh/plus_demo"
+        remote_demo3 = "jenkins@10.2294"
+        remote_demo4 = "jenkins@10.229.6"
+    }
+
+    parameters {
+        string(name: 'REPOSBASE',
+            description: 'the repository basename and the warfile to deploy (fx-plus-backend or fx-auth-server)', defaultValue: 'fx-plus-backend')
+        string(name: 'BRANCH',
+            description: 'the BRANCH to build from', defaultValue: 'sandbox')
+        string(name: 'TARGET',
+            description: 'the TARGET environment to deploy (dev, qa or demo)', defaultValue: 'dev')
+    }
+
+    stages {
+        stage ('Prepare') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'fa7cecaf-511f-4242f3a',
+                    usernameVariable: 'GIT_USER',
+                    passwordVariable: 'GIT_PASSWORD')])
+                {
+                    sh '''#!/bin/bash
+                    set -e
+                    rm -rf *
+                    URL="https://${GIT_USER}:${GIT_PASSWORD}@github.build.ge.com/GSIT/${REPOSBASE}.git"
+                    git clone -b "$BRANCH" "$URL" tmp
+                    cd tmp
+                    '''
+                }
+            }
+        }
+
+        stage ('Gradle') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: '3f790aed-a84d654b4c0dcf1',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'TOKEN')])
+                {
+                    sh '''#!/bin/bash
+                    set -e
+                    cd tmp
+                    chmod +x gradlew
+                    ./gradlew clean build \\
+                        -Partifactory_resolverUser=${USER} \\
+                        -Partifactory_resolverPassword=${TOKEN}
+                    pwd
+                    mv -v fx-*/build/libs/*.war ${WORKSPACE}/${REPOSBASE}.war
+                    '''
+                }
+            }
+        }
+
+        stage ('Version') {
+            steps {
+                sh '''#!/bin/bash
+                set -e
+                cd tmp
+                _BRANCH=$(git rev-parse --abbrev-ref HEAD)
+                _SHA1=$(git rev-parse HEAD)
+                mkdir recycling
+                cd recycling
+                unzip -q ${WORKSPACE}/${REPOSBASE}.war
+                mkdir -p WEB-INF/classes/META-INF
+                echo "build.job=${JOB_BASE_NAME}" >> WEB-INF/classes/META-INF/build-info.properties
+                echo "build.id=${BUILD_ID}" >> WEB-INF/classes/META-INF/build-info.properties
+                echo "build.branch=${_BRANCH}" >> WEB-INF/classes/META-INF/build-info.properties
+                echo "build.commit=${_SHA1}" >> WEB-INF/classes/META-INF/build-info.properties
+                rm -f ${WORKSPACE}/${REPOSBASE}.war
+                zip -q -0 -r ${WORKSPACE}/${REPOSBASE}.war *
+                cd ..
+                rm -rf recycling
+                echo done
+                '''
+            }
+        }
+
+        stage ('Deployment') {
+            steps {
+                configFileProvider([configFile(
+                    fileId: '1311ecdc-e91c-411b-999b-02e9aa30b57f',
+                    targetLocation: '.')])
+                {
+                    // Deploy the downloaded war file
+                    sh '''#!/bin/bash
+                    WHALE=${REPOSBASE}.war
+                    case "$TARGET" in
+                        dev)
+                            scp -i ${keyfile_dev}  deploy_to_tomcat.sh ${WHALE}  ${remote_dev}:.
+                            ssh -i ${keyfile_dev}  ${remote_dev}  "export CATALINA_BASE=/apps/jeeapp/tomcat/current/; bash deploy_to_tomcat.sh ${WHALE}"
+                            ;;
+                        qa)
+                            scp -i ${keyfile_qa}  deploy_to_tomcat.sh ${WHALE}  ${remote_qa}:.
+                            ssh -i ${keyfile_qa}  ${remote_qa}  "export CATALINA_BASE=/apps/jeeapp/tomcat/current/; bash deploy_to_tomcat.sh ${WHALE}"
+                            ;;
+                        demo)
+                            scp -i ${keyfile_demo}  deploy_to_tomcat.sh ${WHALE}  ${remote_demo3}:.
+                            ssh -i ${keyfile_demo}  ${remote_demo3}  "export CATALINA_BASE=/apps/jeeapp/tomcat/current/; bash deploy_to_tomcat.sh ${WHALE}"
+                            scp -i ${keyfile_demo}  deploy_to_tomcat.sh ${WHALE}  ${remote_demo4}:.
+                            ssh -i ${keyfile_demo}  ${remote_demo4}  "export CATALINA_BASE=/apps/jeeapp/tomcat/current/; bash deploy_to_tomcat.sh ${WHALE}"
+                            ;;
+                        *)
+                            exit 1
+                            ;;
+                    esac
+                    '''
+                }
+            }
+        }
+
+    }
+}
