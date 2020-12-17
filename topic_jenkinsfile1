@@ -1,0 +1,116 @@
+#!groovy
+def PROJECT_VERSION ='0.0.0'
+def ARTIFACT_NAME =''
+def PORT =''
+// def TOPIC_ID='' // empty ... will be updated with onlythe suffix of topic-{TOPIC_ID} ex : FE1234 ; US12345 ; DE12345
+pipeline {
+	agent none
+	environment {
+		GITHUB_ACCESS = credentials('bf_github_credentials')
+		HC_ARTIFACTORY = credentials('dtt_artifactory_credentials')
+		DOCKER_REGISTRY = "hc-us-east-aws-artifactory.cloud.health.ge.com"
+		BF_PREPROD_DOCKER_REPO ="docker-dtt-preprod"
+		HOME = "."
+		CACHING_REPO_URL = 'https://hc-us-east-aws-artifactory.cloud.health.ge.com/artifactory/npm-brilliant-factory-all'
+	}
+
+	options { timestamps() }
+
+	parameters {
+		// string(name: 'APP_MODULE', defaultValue: "${JOB_BASE_NAME}", description: 'which maven module should I build')
+		string(name: 'APP_BRANCH', defaultValue: 'master', description: 'which Branch should I build')
+		choice(name: 'BUILD_TYPE', choices: 'topic_verification\ntopic_promotion_dry_run\ntopic_release_to_production', description: 'choose either one of the options')
+	}
+
+	stages {
+		stage('Build Info Set') {
+			steps {
+				script {
+					def triggeredByUser =  "${currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause).getUserName()}"
+					currentBuild.displayName = "${BUILD_DISPLAY_NAME} - ${APP_BRANCH}-${BUILD_TYPE} - ${triggeredByUser}"
+				}
+			}
+		} //stage - Build Info Set
+
+		stage('Node Build') {
+			agent {
+				docker {
+					image 'node:latest'
+					label 'swarm_worker'
+				}
+			}
+			steps {
+				echo ("Project Version = ${PROJECT_VERSION}")
+				script {
+					PROJECT_VERSION = sh(script:'''node -pe "require('./package.json').version"''', returnStdout:true).trim()
+					ARTIFACT_NAME = sh(script:'''node -pe "require('./package.json').name"''', returnStdout:true).trim()
+					PORT = sh(script:'''grep EXPOSE Dockerfile | cut -d' ' -f2 ''', returnStdout:true).trim()
+				}
+				echo ("Project Version = ${PROJECT_VERSION}  Artifact Name = ${ARTIFACT_NAME} Port Exposed = ${PORT}"   )
+				sh  '''
+					npm config set prefix node_modules
+					export PATH=$PATH:node_modules/.bin
+					npm config delete registry
+					# npm config set registry $CACHING_REPO_URL
+					npm config set strict-ssl true
+					npm install --verbose
+					'''
+			}
+		} //stage - Node Build
+		stage ('Docker Image Build') {
+            		agent {
+                		label 'swarm_worker'
+		        }
+            		steps {
+				sh  """
+					ls -al
+					docker --version
+					echo "${PROJECT_VERSION} ${BUILD_ID} ${BUILD_DISPLAY_NAME}"
+					# -${BUILD_ID}  till we have artifactory clean up mechanism enabled for old versions
+					# replace app_branch with topic-id
+					docker build . -t ${DOCKER_REGISTRY}/${BF_PREPROD_DOCKER_REPO}/${ARTIFACT_NAME}:${APP_BRANCH}-${PROJECT_VERSION}
+					docker --config ~/.${BF_PREPROD_DOCKER_REPO} login --username ${HC_ARTIFACTORY_USR} --password ${HC_ARTIFACTORY_PSW} ${DOCKER_REGISTRY}
+					docker --config ~/.${BF_PREPROD_DOCKER_REPO} push ${DOCKER_REGISTRY}/${BF_PREPROD_DOCKER_REPO}/${ARTIFACT_NAME}:${APP_BRANCH}-${PROJECT_VERSION}
+				"""
+            		}
+            		post {
+                		always {
+                    			cleanWs()
+                		}
+            		}
+        	}
+		stage('docker_service_deploy') {
+			agent { label 'swarm_manager'
+			}
+			when {
+                expression {
+                    return "${APP_BRANCH}" == 'develop'
+                }
+            }
+			steps {
+				checkout scm
+				sh  """
+					export PROJECT_VERSION=${PROJECT_VERSION}
+					export ARTIFACT_NAME=${ARTIFACT_NAME}
+					export DOCKER_REGISTRY=${DOCKER_REGISTRY}
+					export BF_PREPROD_DOCKER_REPO=${BF_PREPROD_DOCKER_REPO}
+					export APP_BRANCH=${APP_BRANCH}
+					export PORT=${PORT}
+					export SERVICE_NAME=ehs-moc-frontend
+					export HOST=dev-ehs-moc.dtt.cloud.health.ge.com
+					echo ${PROJECT_VERSION} and ${ARTIFACT_NAME}
+					docker stack deploy -c stack.yml ehs-moc
+					"""
+				cleanWs()
+			}
+		} //stage - docker_service_deploy
+		/*
+		stage('coverity-scan'){ steps{}} //stage - coverity-scan
+		stage('publish_to_artifactory'){ steps{}} //stage - publish_to_artifactory
+		stage('deploy_to_env'){ steps{}} //stage - deploy_to_env
+		stage('post_deployemnt_sanity'){ steps{}} //stage - deploy_to_env
+		cleanWs()
+		stage('activity_log_audit'){ steps{} } //stage - activity_log_audit
+		*/
+	} //stages
+}
