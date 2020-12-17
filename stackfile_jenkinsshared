@@ -1,0 +1,13 @@
+@Library('jenkins-common-libraries') _
+deployTemplate {
+    projectBranch = 'swarm'
+    gitUrl = 'https://github.build.ge.com/Elution-Manager/Elution-Manager-App-React.git'
+    stackFileName = 'stack.yml'
+    stackName = 'elution-manager'
+    dockerRegistry = 'hc-us-east-aws-artifactory.cloud.health.ge.com'
+    dockerRepo = 'docker-dtt-prod' 
+    appBranch = 'swarm'
+    host = 'elution-manager.dtt.cloud.health.ge.com'
+    appType = 'node'
+    envFile = './.env.prod'
+}
