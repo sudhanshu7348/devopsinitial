@@ -1,0 +1,23 @@
+pipeline{
+	agent none
+    environment {
+		HC_ARTIFACTORY = credentials('dtt_artifactory_credentials')
+		DOCKER_REGISTRY = "hc-us-east-aws-artifactory.cloud.health.ge.com"
+		PREPROD_DOCKER_REPO ="docker-dtt-preprod"
+		PROD_DOCKER_REPO ="docker-dtt-prod"
+    }
+    stages {
+		stage('Move Image') { 
+			agent { label 'swarm_worker' }
+			steps {
+                sh  """
+                    docker image pull ${DOCKER_REGISTRY}/${PREPROD_DOCKER_REPO}/${NONPROD_BASE_IMAGE_AND_VERSION}
+                    docker tag ${DOCKER_REGISTRY}/${PREPROD_DOCKER_REPO}/${NONPROD_BASE_IMAGE_AND_VERSION} ${DOCKER_REGISTRY}/${PROD_DOCKER_REPO}/${PROD_BASE_IMAGE_AND_VERSION}
+                    docker login --username ${HC_ARTIFACTORY_USR} --password ${HC_ARTIFACTORY_PSW} ${DOCKER_REGISTRY}
+                    docker push ${DOCKER_REGISTRY}/${PROD_DOCKER_REPO}/${PROD_BASE_IMAGE_AND_VERSION}
+                    docker logout
+                    """
+			}
+		}
+    }
+}
