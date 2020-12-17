@@ -1,0 +1,154 @@
+jenkins:
+  securityRealm:
+    github:
+      clientID: ${GITHUB_CLIENT_ID}
+      clientSecret: ${github-client-secret}
+      githubApiUri: "https://github.build.ge.com/api/v3"
+      githubWebUri: "https://github.build.ge.com"
+      oauthScopes: "read:org,user:email,repo"
+  authorizationStrategy:
+    globalMatrix:
+      permissions:
+      - "Agent/Build:DET-Software-Cloud-Ops"
+      - "Agent/Configure:DET-Software-Cloud-Ops"
+      - "Agent/Connect:DET-Software-Cloud-Ops"
+      - "Agent/Create:DET-Software-Cloud-Ops"
+      - "Agent/Delete:DET-Software-Cloud-Ops"
+      - "Agent/Disconnect:DET-Software-Cloud-Ops"
+      - "Artifactory/Promote:DET-Software-Cloud-Ops"
+      - "Artifactory/Release:DET-Software-Cloud-Ops"
+      - "Credentials/Create:DET-Software-Cloud-Ops"
+      - "Credentials/Create:authenticated"
+      - "Credentials/Delete:DET-Software-Cloud-Ops"
+      - "Credentials/ManageDomains:DET-Software-Cloud-Ops"
+      - "Credentials/Update:DET-Software-Cloud-Ops"
+      - "Credentials/View:DET-Software-Cloud-Ops"
+      - "Docker Traceability/Delete:DET-Software-Cloud-Ops"
+      - "Docker Traceability/Read:DET-Software-Cloud-Ops"
+      - "Docker Traceability/Submit:DET-Software-Cloud-Ops"
+      - "Job/Build:DET-Software-Cloud-Ops"
+      - "Job/Build:authenticated"
+      - "Job/Cancel:DET-Software-Cloud-Ops"
+      - "Job/Cancel:authenticated"
+      - "Job/Configure:DET-Software-Cloud-Ops"
+      - "Job/Configure:authenticated"
+      - "Job/Create:DET-Software-Cloud-Ops"
+      - "Job/Create:authenticated"
+      - "Job/Delete:DET-Software-Cloud-Ops"
+      - "Job/Delete:authenticated"
+      - "Job/Discover:DET-Software-Cloud-Ops"
+      - "Job/Discover:authenticated"
+      - "Job/ExtendedRead:DET-Software-Cloud-Ops"
+      - "Job/ExtendedRead:authenticated"
+      - "Job/Move:DET-Software-Cloud-Ops"
+      - "Job/Read:DET-Software-Cloud-Ops"
+      - "Job/Read:authenticated"
+      - "Job/ViewStatus:DET-Software-Cloud-Ops"
+      - "Job/ViewStatus:authenticated"
+      - "Job/Workspace:DET-Software-Cloud-Ops"
+      - "Job/Workspace:authenticated"
+      - "Lockable Resources/Reserve:DET-Software-Cloud-Ops"
+      - "Lockable Resources/Unlock:DET-Software-Cloud-Ops"
+      - "Metrics/HealthCheck:DET-Software-Cloud-Ops"
+      - "Metrics/ThreadDump:DET-Software-Cloud-Ops"
+      - "Metrics/View:DET-Software-Cloud-Ops"
+      - "Overall/Administer:DET-Software-Cloud-Ops"
+      - "Overall/Read:DET-Software-Cloud-Ops"
+      - "Overall/Read:anonymous"
+      - "Overall/Read:authenticated"
+      - "Run/Delete:DET-Software-Cloud-Ops"
+      - "Run/Replay:DET-Software-Cloud-Ops"
+      - "Run/Update:DET-Software-Cloud-Ops"
+      - "SCM/Tag:DET-Software-Cloud-Ops"
+      - "View/Configure:DET-Software-Cloud-Ops"
+      - "View/Create:DET-Software-Cloud-Ops"
+      - "View/Delete:DET-Software-Cloud-Ops"
+      - "View/Read:DET-Software-Cloud-Ops"
+  globalNodeProperties:
+  - envVars:
+      env:
+      - key: "credentialsId"
+        value: "${CREDENTIALS_ID}"
+      - key: "pemFileName"
+        value: "${PEM_FILE_NAME}"
+      - key: "prodSwarm"
+        value: "${JUMP_BOX_ADDRESS}"
+      - key: "artifactoryId"
+        value: "${ARTIFACTORY_ID}"
+      - key: "dockerProdRepo"
+        value: "${ARTIFACTORY_PROD_REPO}"
+      - key: "dockerPreProdRepo"
+        value: "${ARTIFACTORY_PREPROD_REPO}"
+      - key: "dockerRegistry"
+        value: "${ARTIFACTORY_SITE}"
+      - key: "sonarUrl"
+        value: "${SONAR_URL}"
+credentials:
+  system:
+    domainCredentials:
+    - credentials:
+      - usernamePassword:
+          description: "bf_githuntials 502715326"
+          id: "bftials"
+          password: ${bf-github-password}
+          scope: GLOBAL
+          username: "50
+      - usernamePassword:
+          description: "dt_github_credentials 502715326"
+          id: "dt_gitials"
+          password: ${github-password}
+          scope: GLOBAL
+          username: "502726"
+      - usernamePassword:
+          description: "bf_a_credentials"
+          id: "bf_artifactory_credentials"
+          password: "${artword}"
+          scope: GLOBAL
+          username: "500"
+      - usernamePassword:
+          description: "dtt_artifactory_credentials"
+          id: "dtt_artifactials"
+          password: "${dt-password}"
+          scope: GLOBAL
+          username: "50226"
+      - basicSSHUserPrivateKey:
+          description: "jenkins_slave user ubuntu"
+          id: "jenkins_slave"
+          privateKeySource:
+            directEntry:
+              privateKey: "${ssh-key}"
+          scope: GLOBAL
+          username: "ubuntu"
+      - basicSSHUserPrivateKey:
+          description: "jumpbox_ssh"
+          id: "jumpbox_ssh"
+          privateKeySource:
+            directEntry:
+              privateKey: "${jumpbox-ssh-key}"
+          scope: GLOBAL
+          username: "ubuntu"
+unclassified:
+  globalLibraries:
+    libraries:
+    - defaultVersion: "master"
+      name: "jenkins-common-libraries"
+      retriever:
+        modernSCM:
+          scm:
+            git:
+              credentialsId: "dt_github_credentials"
+              id: "1c1c752565cdfc60319"
+              remote: "https://github.bcom/DET-Software-Cloud-Ops/jenkins-common-libraries.git"
+              traits:
+              - "branchDiscoveryTrait"
+    - defaultVersion: "master"
+      name: "jenkins-deploy-library"
+      retriever:
+        modernSCM:
+          scm:
+            git:
+              credentialsId: "dt_githuntials"
+              id: "bf3288e-9657dd3d71c9"
+              remote: "https://github.bcom/DET-Software/jenkins-deploy-library.git"
+              traits:
+              - "branchDiscoveryTrait"
