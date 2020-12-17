@@ -1,0 +1,24 @@
+#!/bin/sh
+ENDPOINT=$1
+PORT=$2
+LOCALPORT=$3
+if [ -z $ENDPOINT ]
+then
+  echo "ENDPOINT is required"
+  exit 1
+fi
+if [ -z $PORT ]
+then
+  echo "DB PORT NOT PROVIDED, DEFAULTING TO 5432"
+  PORT=5432
+fi
+if [ -z $LOCALPORT ]
+then
+  echo "LOCAL PORT NOT PROVIDED, DEFAULTING TO 9090"
+  LOCALPORT=9090
+fi
+
+
+ssh \
+    -L 127.0.0.1:$LOCALPORT:$ENDPOINT:$PORT \
+    -i "bam" ec2-user@10.2
