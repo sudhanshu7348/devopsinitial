@@ -1,0 +1,45 @@
+version: '3.3'
+ 
+services:
+  node:
+    hostname: jenkins
+    image: hc-us-east-aws-artifactory.cloud.health.ge.com/docker-all/jaas/jenkins-master:1.0.201908
+    environment: 
+      - "JENKINS_OPTS=--httpPort=8085 --prefix=/jenkins"
+      # - "JENKINS_OPTS=--httpPort=$JENKINS_PORT --prefix=/jenkins"
+    networks:
+      - gehc-bf
+    volumes:
+      - type: bind
+        source: /mnt/efs/jenkins_home
+        target: /var/jenkins_home
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+    deploy:
+      update_config:
+        parallelism: 1
+        delay: 10s
+      replicas: 1
+      labels:
+        - traefik.frontend.passHostHeader=true
+        # - traefik.port=$JENKINS_PORT
+        - traefik.port=8085
+        # - traefik.frontend.rule=Host:$SWARM_DNS;PathPrefixStrip:/jenkins/
+        - traefik.frontend.rule=Host:internal-cloud-ops-swarm-dev-1334477905.us-east-1.elb.amazonaws.com
+        - traefik.backend.healthcheck.interval=30s
+        - traefik.backend.healthcheck.timeout=5s
+        - traefik.docker.network=gehc-bf
+      placement:
+        constraints: [node.role == worker]
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 300M
+      
+# networks:
+#   data_network:
+#     driver: overlay
+#   gehc-bf:
+#     external: true
