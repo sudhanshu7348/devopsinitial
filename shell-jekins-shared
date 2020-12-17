@@ -1,0 +1,8 @@
+@Library('jenkins-common-libraries') _
+blobstoreToS3Pipeline {
+    AWS_S3_BUCKET = "bfprod"
+    PREDIX_BUCKET_GUID = "bucked9f"
+    
+    PREDIX_ACCESS_KEY = "AKIKEGL"
+    PREDIX_SECRET = "kAQq9FQ2hh"
+}
