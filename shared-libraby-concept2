@@ -1,0 +1,13 @@
+@Library('jenkins-common-libraries') _
+deployTemplate {
+    projectBranch = 'master'
+    gitUrl = 'https://github.build.ge.com/DET-Software/pm-checklist-microapp.git'
+    stackFileName = 'stack.yml'
+    stackName = 'pm-checklist'
+    dockerRegistry = 'hc-us-east-aws-artifactory.cloud.health.ge.com'
+    dockerRepo = 'docker-dtt-prod' 
+    appBranch = 'master'
+    serviceName = 'workforce'
+    host = 'pm-checklist.cloud.gehealthcare.com'
+    appType = 'node'
+}
