@@ -1,0 +1,7 @@
+#!/bin/sh
+ssh -o IdentitiesOnly=yes \
+    -L 127.0.0.1:9091:workforce-distance-alg-dev-rst-1.rds.amazonaws.com:1433 \
+    -L 127.0.0.1:9092:workforce-ingestion-testt-1.rds.amazonaws.com:5432 \
+    -L 127.0.0.1:9093:prod-360.c7kua3gi0aws.com:5432 \
+    -L 127.0.0.1:9094:mom-db.c7ku-1.rds.amazonaws.com:5432 \
+    -i bastion-access.pem ec2-user@10.232.
