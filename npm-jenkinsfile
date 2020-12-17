@@ -1,0 +1,82 @@
+#!groovy
+
+pipeline {
+	agent { label 'swarm_worker' }
+
+	environment {
+		HC_ARTIFACTORY = credentials('dtt_artifactory_credentials')
+		REGISTRY_URL = "hc-us-east-aws-artifactory.cloud.health.ge.com"
+		DTT_PROD_NPM_REGISTRY = "npm-dtt-prod"
+		PACKAGE_SCOPE = "det-software"
+	}
+
+	options { timestamps() }
+
+	stages {
+		stage('Setup') {
+			agent {
+				docker {
+					image 'node:latest'
+					label 'swarm_worker'
+					reuseNode true
+				}
+			}
+
+			steps {
+				sh  """
+					npm install --verbose
+					"""
+			}
+		}
+
+		stage('Build') {
+			agent {
+				docker {
+					image 'node:latest'
+					label 'swarm_worker'
+					reuseNode true
+				}
+			}
+
+			steps {
+				sh  """
+					npm run build
+					"""
+			}
+		}
+
+		stage('Publish') {
+			when { branch 'master' }
+
+			agent {
+				docker {
+					image 'node:latest'
+					label 'swarm_worker'
+					reuseNode true
+				}
+			}
+
+			steps {
+				// Establish artifactory credentials
+				sh  '''
+					npm config set @${PACKAGE_SCOPE}:registry https://${REGISTRY_URL}/artifactory/api/npm/${DTT_PROD_NPM_REGISTRY}/
+					export HC_ARTIFACTORY_AUTH_TOKEN_BASE_64=$(echo -n $HC_ARTIFACTORY_PSW | base64 | tr -d '[:space:]')
+					echo "//${REGISTRY_URL}/artifactory/api/npm/${DTT_PROD_NPM_REGISTRY}/:_password=${HC_ARTIFACTORY_AUTH_TOKEN_BASE_64}" >> ~/.npmrc
+					echo "//${REGISTRY_URL}/artifactory/api/npm/${DTT_PROD_NPM_REGISTRY}/:username=${HC_ARTIFACTORY_USR}" >> ~/.npmrc
+					echo "//${REGISTRY_URL}/artifactory/api/npm/${DTT_PROD_NPM_REGISTRY}/:email=${HC_ARTIFACTORY_USR}@ge.com" >> ~/.npmrc
+					echo "//${REGISTRY_URL}/artifactory/api/npm/${DTT_PROD_NPM_REGISTRY}/:always-auth=true" >> ~/.npmrc
+					'''
+
+				// Publish the package
+				//
+				// NOTE: If the current version already exists in artifactory the application will not be
+				// published. Usually, with this error you will get a 403 Forbidden, which is rather
+				// confusing, but you need to make sure you are version bumping your application when you
+				// realease to production.
+				//
+				// The version can be found, and modified, in the package.json firl
+				sh  'npm publish'
+			}
+		}
+	}
+}
